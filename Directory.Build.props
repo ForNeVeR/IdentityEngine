@@ -1,0 +1,17 @@
+<Project>
+
+  <PropertyGroup>
+    <VersionPrefix>1.0.0</VersionPrefix>
+    <VersionSuffix>alpha1</VersionSuffix>
+    <Nullable>enable</Nullable>
+    <Company>Roman Bukin</Company>
+    <Authors>Roman Bukin</Authors>
+    <Copyright>Roman Bukin</Copyright>
+    <EnforceCodeStyleInBuild>True</EnforceCodeStyleInBuild>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisMode>All</AnalysisMode>
+    <AnalysisLevel>latest</AnalysisLevel>
+  </PropertyGroup>
+
+</Project>
