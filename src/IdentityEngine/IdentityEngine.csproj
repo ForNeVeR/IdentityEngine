@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <OutputType>Library</OutputType>
-    <NoWarn>$(NoWarn);CA1014</NoWarn>
+    <NoWarn>$(NoWarn);CA1014;CA1716;CA2007</NoWarn>
     <PackageTags>OAuth;OAuth2;OAuth 2.0;OAuth 2.1;OpenID Connect;Security;Identity;IdentityEngine</PackageTags>
     <DisableImplicitNamespaceImports>true</DisableImplicitNamespaceImports>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
@@ -25,10 +25,6 @@
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App"/>
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Microsoft.CodeAnalysis" Version="4.1.0"/>
   </ItemGroup>
 
 </Project>

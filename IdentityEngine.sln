@@ -8,6 +8,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "root", "root", "{7B2925CB-4
 	ProjectSection(SolutionItems) = preProject
 		Directory.Build.props = Directory.Build.props
 		global.json = global.json
+		NOTICE.md = NOTICE.md
 	EndProjectSection
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "IdentityEngine", "src\IdentityEngine\IdentityEngine.csproj", "{EA906DDB-DEFE-44E5-B5EF-3116D51AE782}"

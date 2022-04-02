@@ -1,5 +1,9 @@
 using IdentityEngine.Configuration.DependencyInjection.Builder;
 using IdentityEngine.Configuration.Options;
+using IdentityEngine.Models;
+using IdentityEngine.Models.Default;
+using IdentityEngine.Services.Factories.SubjectId;
+using IdentityEngine.Services.Factories.SubjectId.Default;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
@@ -15,13 +19,18 @@ public static class ServiceCollectionExtensions
         return new IdentityEngineBuilder(services);
     }
 
-    public static IIdentityEngineBuilder AddIdentityEngine(this IServiceCollection services)
+    public static IIdentityEngineBuilder AddIdentityEngine<TSubjectId, TSubjectIdFactory>(this IServiceCollection services)
+        where TSubjectId : ISubjectId
+        where TSubjectIdFactory : class, ISubjectIdFactory<TSubjectId>
     {
         ArgumentNullException.ThrowIfNull(services);
         var builder = services.AddIdentityEngineBuilder();
         builder
             .AddRequiredPlatformServices()
-            .AddCookieAuthentication();
+            .AddCookieAuthentication()
+            .AddCoreServices<TSubjectId, TSubjectIdFactory>()
+            .AddDefaultEndpoints<TSubjectId>()
+            .AddValidators();
         return builder;
     }
 
@@ -32,7 +41,7 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(setupAction);
         services.Configure(setupAction);
-        return services.AddIdentityEngine();
+        return services.AddIdentityEngine<DefaultSubjectId, SubjectIdFactory>();
     }
 
     public static IIdentityEngineBuilder AddIdentityEngine(
@@ -42,7 +51,7 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
         services.Configure<IdentityEngineOptions>(configuration);
-        return services.AddIdentityEngine();
+        return services.AddIdentityEngine<DefaultSubjectId, SubjectIdFactory>();
     }
 
     public static IServiceCollection ConfigureSameSiteNoneCookiePolicy(this IServiceCollection services)
