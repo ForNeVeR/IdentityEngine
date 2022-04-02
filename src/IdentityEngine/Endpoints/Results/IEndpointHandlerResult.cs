@@ -4,5 +4,5 @@ namespace IdentityEngine.Endpoints.Results;
 
 public interface IEndpointHandlerResult
 {
-    Task ExecuteAsync(HttpContext httpContext);
+    Task ExecuteAsync(HttpContext httpContext, CancellationToken cancellationToken = default);
 }

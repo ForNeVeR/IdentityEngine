@@ -33,7 +33,9 @@ public class UserAuthenticationService<TSubjectId> : IUserAuthenticationService<
         _logger = logger;
     }
 
-    public virtual async Task<UserAuthenticationResult<TSubjectId>> AuthenticateAsync(HttpContext httpContext)
+    public virtual async Task<UserAuthenticationResult<TSubjectId>> AuthenticateAsync(
+        HttpContext httpContext,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(httpContext);
         _logger.Start();

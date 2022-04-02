@@ -7,5 +7,5 @@ namespace IdentityEngine.Services.UserAuthentication;
 public interface IUserAuthenticationService<TSubjectId>
     where TSubjectId : ISubjectId
 {
-    Task<UserAuthenticationResult<TSubjectId>> AuthenticateAsync(HttpContext httpContext);
+    Task<UserAuthenticationResult<TSubjectId>> AuthenticateAsync(HttpContext httpContext, CancellationToken cancellationToken = default);
 }

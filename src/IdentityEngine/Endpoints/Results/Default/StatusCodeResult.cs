@@ -12,10 +12,10 @@ public class StatusCodeResult : IEndpointHandlerResult
         _statusCode = (int) httpStatusCode;
     }
 
-    public virtual Task ExecuteAsync(HttpContext httpContext)
+    public virtual Task ExecuteAsync(HttpContext httpContext, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(httpContext);
-        httpContext.RequestAborted.ThrowIfCancellationRequested();
+        cancellationToken.ThrowIfCancellationRequested();
         httpContext.Response.StatusCode = _statusCode;
         return Task.CompletedTask;
     }

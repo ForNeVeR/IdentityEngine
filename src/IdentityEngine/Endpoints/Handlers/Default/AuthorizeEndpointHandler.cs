@@ -26,11 +26,11 @@ public class AuthorizeEndpointHandler<TSubjectId> : IAuthorizeEndpointHandler
         _userAuthentication = userAuthentication;
     }
 
-    public virtual async Task<IEndpointHandlerResult> HandleAsync(HttpContext httpContext)
+    public virtual async Task<IEndpointHandlerResult> HandleAsync(HttpContext httpContext, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(httpContext);
         _logger.Start();
-        httpContext.RequestAborted.ThrowIfCancellationRequested();
+        cancellationToken.ThrowIfCancellationRequested();
         // According to https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#section-3.1
         // The authorization server MUST support the use of the HTTP GET method for the authorization endpoint and MAY support the use of
         // the POST method as well.
@@ -47,7 +47,7 @@ public class AuthorizeEndpointHandler<TSubjectId> : IAuthorizeEndpointHandler
                 return new StatusCodeResult(HttpStatusCode.UnsupportedMediaType);
             }
 
-            var form = await httpContext.Request.ReadFormAsync(httpContext.RequestAborted);
+            var form = await httpContext.Request.ReadFormAsync(cancellationToken);
             parameters = form.AsReadOnlyDictionary();
         }
         else
@@ -56,7 +56,7 @@ public class AuthorizeEndpointHandler<TSubjectId> : IAuthorizeEndpointHandler
             return new StatusCodeResult(HttpStatusCode.MethodNotAllowed);
         }
 
-        var authenticationResult = await _userAuthentication.AuthenticateAsync(httpContext);
+        var authenticationResult = await _userAuthentication.AuthenticateAsync(httpContext, cancellationToken);
         if (authenticationResult.HasError)
         {
         }
