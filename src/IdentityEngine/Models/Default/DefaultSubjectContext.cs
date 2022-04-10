@@ -1,8 +1,8 @@
 namespace IdentityEngine.Models.Default;
 
-public class DefaultSubjectId : ISubjectId
+public class DefaultSubjectContext : ISubjectContext
 {
-    public DefaultSubjectId(string subjectId)
+    public DefaultSubjectContext(string subjectId)
     {
         if (string.IsNullOrWhiteSpace(subjectId))
         {

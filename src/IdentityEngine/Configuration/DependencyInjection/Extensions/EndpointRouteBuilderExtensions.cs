@@ -19,7 +19,11 @@ public static class EndpointRouteBuilderExtensions
         {
             builder.AddEndpoint<IAuthorizeEndpointHandler>(
                 options.Endpoints.Authorize.Path,
-                new(new[] { HttpMethods.Get, HttpMethods.Post }));
+                new(new[]
+                {
+                    HttpMethods.Get,
+                    HttpMethods.Post
+                }));
             builder.AddEndpoint<IAuthorizeEndpointCallbackHandler>(
                 options.Endpoints.Authorize.CallbackPath,
                 new(new[] { HttpMethods.Get }));

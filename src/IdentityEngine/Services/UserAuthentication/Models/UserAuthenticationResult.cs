@@ -3,10 +3,10 @@ using IdentityEngine.Models;
 
 namespace IdentityEngine.Services.UserAuthentication.Models;
 
-public class UserAuthenticationResult<TSubjectId>
-    where TSubjectId : ISubjectId
+public class UserAuthenticationResult<TSubjectContext>
+    where TSubjectContext : ISubjectContext
 {
-    public UserAuthenticationResult(AuthenticatedUserSession<TSubjectId> session)
+    public UserAuthenticationResult(AuthenticatedUserSession<TSubjectContext> session)
     {
         ArgumentNullException.ThrowIfNull(session);
         IsAuthenticated = true;
@@ -35,7 +35,7 @@ public class UserAuthenticationResult<TSubjectId>
     [MemberNotNullWhen(true, nameof(Session))]
     public bool IsAuthenticated { get; }
 
-    public AuthenticatedUserSession<TSubjectId>? Session { get; }
+    public AuthenticatedUserSession<TSubjectContext>? Session { get; }
 
     [MemberNotNullWhen(true, nameof(ProtocolError))]
     public bool HasError { get; }

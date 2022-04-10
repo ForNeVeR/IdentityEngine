@@ -1,6 +1,6 @@
 using IdentityEngine.Configuration.Options;
+using IdentityEngine.Factories.SubjectContext;
 using IdentityEngine.Models;
-using IdentityEngine.Services.Factories.SubjectId;
 using IdentityEngine.Services.UserAuthentication.Models;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
@@ -9,31 +9,31 @@ using Microsoft.Extensions.Logging;
 
 namespace IdentityEngine.Services.UserAuthentication.Default;
 
-public class UserAuthenticationService<TSubjectId> : IUserAuthenticationService<TSubjectId>
-    where TSubjectId : ISubjectId
+public sealed class UserAuthenticationService<TSubjectContext> : IUserAuthenticationService<TSubjectContext>
+    where TSubjectContext : ISubjectContext
 {
     private readonly IAuthenticationSchemeProvider _authenticationSchemeProvider;
-    private readonly ILogger<UserAuthenticationService<TSubjectId>> _logger;
+    private readonly ILogger<UserAuthenticationService<TSubjectContext>> _logger;
     private readonly IdentityEngineOptions _options;
-    private readonly ISubjectIdFactory<TSubjectId> _subjectIdFactory;
+    private readonly ISubjectContextFactory<TSubjectContext> _subjectContextFactory;
 
     public UserAuthenticationService(
         IdentityEngineOptions options,
         IAuthenticationSchemeProvider authenticationSchemeProvider,
-        ISubjectIdFactory<TSubjectId> subjectIdFactory,
-        ILogger<UserAuthenticationService<TSubjectId>> logger)
+        ISubjectContextFactory<TSubjectContext> subjectContextFactory,
+        ILogger<UserAuthenticationService<TSubjectContext>> logger)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(authenticationSchemeProvider);
-        ArgumentNullException.ThrowIfNull(subjectIdFactory);
+        ArgumentNullException.ThrowIfNull(subjectContextFactory);
         ArgumentNullException.ThrowIfNull(logger);
         _options = options;
         _authenticationSchemeProvider = authenticationSchemeProvider;
-        _subjectIdFactory = subjectIdFactory;
+        _subjectContextFactory = subjectContextFactory;
         _logger = logger;
     }
 
-    public virtual async Task<UserAuthenticationResult<TSubjectId>> AuthenticateAsync(
+    public async Task<UserAuthenticationResult<TSubjectContext>> AuthenticateAsync(
         HttpContext httpContext,
         CancellationToken cancellationToken = default)
     {
@@ -78,8 +78,8 @@ public class UserAuthenticationService<TSubjectId> : IUserAuthenticationService<
             return new();
         }
 
-        var subjectId = await _subjectIdFactory.CreateAsync(httpContext, result.Ticket);
-        var session = new AuthenticatedUserSession<TSubjectId>(subjectId, result.Ticket);
+        var subjectContext = await _subjectContextFactory.CreateAsync(httpContext, result.Ticket, cancellationToken);
+        var session = new AuthenticatedUserSession<TSubjectContext>(subjectContext, result.Ticket);
         _logger.EndSuccessful();
         return new(session);
     }

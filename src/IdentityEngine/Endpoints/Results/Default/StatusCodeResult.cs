@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Http;
 
 namespace IdentityEngine.Endpoints.Results.Default;
 
-public class StatusCodeResult : IEndpointHandlerResult
+public sealed class StatusCodeResult : IEndpointHandlerResult
 {
     private readonly int _statusCode;
 
@@ -12,7 +12,7 @@ public class StatusCodeResult : IEndpointHandlerResult
         _statusCode = (int) httpStatusCode;
     }
 
-    public virtual Task ExecuteAsync(HttpContext httpContext, CancellationToken cancellationToken = default)
+    public Task ExecuteAsync(HttpContext httpContext, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(httpContext);
         cancellationToken.ThrowIfCancellationRequested();

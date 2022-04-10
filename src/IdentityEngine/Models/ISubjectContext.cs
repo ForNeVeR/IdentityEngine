@@ -1,6 +1,6 @@
 namespace IdentityEngine.Models;
 
-public interface ISubjectId
+public interface ISubjectContext
 {
     string SubjectId { get; }
 }

@@ -1,9 +1,14 @@
 using IdentityEngine.Configuration.DependencyInjection.Builder;
 using IdentityEngine.Configuration.Options;
+using IdentityEngine.Factories.Errors;
+using IdentityEngine.Factories.Errors.Default;
+using IdentityEngine.Factories.SubjectContext;
+using IdentityEngine.Factories.SubjectContext.Default;
 using IdentityEngine.Models;
+using IdentityEngine.Models.Configuration;
 using IdentityEngine.Models.Default;
-using IdentityEngine.Services.Factories.SubjectId;
-using IdentityEngine.Services.Factories.SubjectId.Default;
+using IdentityEngine.Models.Default.Infrastructure;
+using IdentityEngine.Models.Infrastructure;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
@@ -19,39 +24,101 @@ public static class ServiceCollectionExtensions
         return new IdentityEngineBuilder(services);
     }
 
-    public static IIdentityEngineBuilder AddIdentityEngine<TSubjectId, TSubjectIdFactory>(this IServiceCollection services)
-        where TSubjectId : ISubjectId
-        where TSubjectIdFactory : class, ISubjectIdFactory<TSubjectId>
+    public static IIdentityEngineBuilder AddIdentityEngine<
+        TSubjectContext,
+        TError,
+        TClient,
+        TClientSecret,
+        TIdTokenScope,
+        TAccessTokenScope,
+        TApi,
+        TApiSecret,
+        TSubjectContextFactory,
+        TErrorFactory>(this IServiceCollection services)
+        where TSubjectContext : ISubjectContext
+        where TError : IError
+        where TClient : IClient<TClientSecret>
+        where TClientSecret : ISecret
+        where TIdTokenScope : IIdTokenScope
+        where TAccessTokenScope : IAccessTokenScope
+        where TApi : IApi<TApiSecret>
+        where TApiSecret : ISecret
+        where TSubjectContextFactory : class, ISubjectContextFactory<TSubjectContext>
+        where TErrorFactory : class, IErrorFactory<TError>
     {
         ArgumentNullException.ThrowIfNull(services);
         var builder = services.AddIdentityEngineBuilder();
         builder
             .AddRequiredPlatformServices()
             .AddCookieAuthentication()
-            .AddCoreServices<TSubjectId, TSubjectIdFactory>()
-            .AddDefaultEndpoints<TSubjectId>()
-            .AddValidators();
+            .AddCoreServices<TSubjectContext, TError, TSubjectContextFactory, TErrorFactory>()
+            .AddDefaultEndpoints<TSubjectContext, TError, TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TApi, TApiSecret>()
+            .AddValidators<TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TApi, TApiSecret>();
         return builder;
     }
 
-    public static IIdentityEngineBuilder AddIdentityEngine(
+    public static IIdentityEngineBuilder AddIdentityEngine<
+        TClient,
+        TClientSecret,
+        TIdTokenScope,
+        TAccessTokenScope,
+        TApi,
+        TApiSecret>(
         this IServiceCollection services,
         Action<IdentityEngineOptions> setupAction)
+        where TClient : IClient<TClientSecret>
+        where TClientSecret : ISecret
+        where TIdTokenScope : IIdTokenScope
+        where TAccessTokenScope : IAccessTokenScope
+        where TApi : IApi<TApiSecret>
+        where TApiSecret : ISecret
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(setupAction);
         services.Configure(setupAction);
-        return services.AddIdentityEngine<DefaultSubjectId, SubjectIdFactory>();
+        return services.AddIdentityEngine<
+            DefaultSubjectContext,
+            DefaultError,
+            TClient,
+            TClientSecret,
+            TIdTokenScope,
+            TAccessTokenScope,
+            TApi,
+            TApiSecret,
+            SubjectContextFactory,
+            ErrorFactory>();
     }
 
-    public static IIdentityEngineBuilder AddIdentityEngine(
+    public static IIdentityEngineBuilder AddIdentityEngine<
+        TClient,
+        TClientSecret,
+        TIdTokenScope,
+        TAccessTokenScope,
+        TApi,
+        TApiSecret>(
         this IServiceCollection services,
         IConfiguration configuration)
+        where TClient : IClient<TClientSecret>
+        where TClientSecret : ISecret
+        where TIdTokenScope : IIdTokenScope
+        where TAccessTokenScope : IAccessTokenScope
+        where TApi : IApi<TApiSecret>
+        where TApiSecret : ISecret
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
         services.Configure<IdentityEngineOptions>(configuration);
-        return services.AddIdentityEngine<DefaultSubjectId, SubjectIdFactory>();
+        return services.AddIdentityEngine<
+            DefaultSubjectContext,
+            DefaultError,
+            TClient,
+            TClientSecret,
+            TIdTokenScope,
+            TAccessTokenScope,
+            TApi,
+            TApiSecret,
+            SubjectContextFactory,
+            ErrorFactory>();
     }
 
     public static IServiceCollection ConfigureSameSiteNoneCookiePolicy(this IServiceCollection services)

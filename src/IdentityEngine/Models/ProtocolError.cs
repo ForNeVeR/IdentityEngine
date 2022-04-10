@@ -2,7 +2,9 @@ namespace IdentityEngine.Models;
 
 public class ProtocolError
 {
-    public ProtocolError(string error, string? errorDescription)
+    public ProtocolError(
+        string error,
+        string? errorDescription)
     {
         if (string.IsNullOrWhiteSpace(error))
         {
@@ -10,13 +12,9 @@ public class ProtocolError
         }
 
         Error = error;
-        if (!string.IsNullOrWhiteSpace(errorDescription))
-        {
-            ErrorDescription = errorDescription;
-        }
+        ErrorDescription = errorDescription;
     }
 
     public string Error { get; }
-
     public string? ErrorDescription { get; }
 }
