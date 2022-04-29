@@ -133,7 +133,6 @@ public sealed class AuthorizeEndpointHandler<TError, TClient, TClientSecret, TId
                 cancellationToken);
         }
 
-
         var response = await _responseGenerator.CreateResponseAsync(httpContext, interactionResult.ValidRequest, cancellationToken);
         var issuer = _originUrls.GetOrigin(httpContext);
         var successfulResponseParameters = BuildSuccessfulResponseParameters(response, issuer);

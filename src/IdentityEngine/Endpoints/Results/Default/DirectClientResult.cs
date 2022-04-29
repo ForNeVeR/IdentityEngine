@@ -76,7 +76,11 @@ public class DirectClientResult : IEndpointHandlerResult
             builder.Append("<input type='hidden' name='");
             builder.Append(key);
             builder.Append("' value='");
-            builder.Append(value != null ? HtmlEncoder.Default.Encode(value) : string.Empty);
+            if (value != null)
+            {
+                builder.Append(HtmlEncoder.Default.Encode(value));
+            }
+
             builder.Append("' />\n");
         }
 

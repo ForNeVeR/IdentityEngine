@@ -48,7 +48,7 @@ public static class EndpointRouteBuilderExtensions
                 httpContext.RequestAborted.ThrowIfCancellationRequested();
                 var handler = httpContext.RequestServices.GetRequiredService<THandler>();
                 var result = await handler.HandleAsync(httpContext, httpContext.RequestAborted);
-                await result.ExecuteAsync(httpContext);
+                await result.ExecuteAsync(httpContext, httpContext.RequestAborted);
             });
         endpointBuilder.WithMetadata(metadata);
         endpointBuilder.WithDisplayName($"{path} HTTP: {string.Join(", ", metadata.HttpMethods)}");
