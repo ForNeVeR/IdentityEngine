@@ -62,6 +62,7 @@ public class AuthorizationCodeService<TAuthorizationCode> : IAuthorizationCodeSe
         cancellationToken.ThrowIfCancellationRequested();
         var code = await _storage.ReadAndDeleteAsync(httpContext, authorizationCode, cancellationToken);
         if (code == null
+            || _systemClock.UtcNow > code.ExpiresAt
             || codeVerifier.ToSha256() != code.CodeChallenge
             || redirectUri != code.RedirectUri)
         {
