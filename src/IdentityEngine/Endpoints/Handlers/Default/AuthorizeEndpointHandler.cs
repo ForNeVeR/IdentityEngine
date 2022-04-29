@@ -5,58 +5,72 @@ using IdentityEngine.Endpoints.Results.Default;
 using IdentityEngine.Extensions;
 using IdentityEngine.Models;
 using IdentityEngine.Models.Configuration;
-using IdentityEngine.Models.Infrastructure;
+using IdentityEngine.Models.Intermediate;
+using IdentityEngine.Services.Core;
 using IdentityEngine.Services.Endpoints.Authorize;
-using IdentityEngine.Services.Endpoints.Authorize.Models;
-using IdentityEngine.Services.Error;
-using IdentityEngine.Services.UserAuthentication;
+using IdentityEngine.Services.Endpoints.Authorize.Models.RequestValidator;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Primitives;
 
 namespace IdentityEngine.Endpoints.Handlers.Default;
 
-public sealed class AuthorizeEndpointHandler<TSubjectContext, TError, TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TApi, TApiSecret> : IAuthorizeEndpointHandler
-    where TSubjectContext : ISubjectContext
-    where TError : IError
-    where TClient : IClient<TClientSecret>
-    where TClientSecret : ISecret
-    where TIdTokenScope : IIdTokenScope
-    where TAccessTokenScope : IAccessTokenScope
-    where TApi : IApi<TApiSecret>
-    where TApiSecret : ISecret
+public sealed class AuthorizeEndpointHandler<TError, TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TResource, TResourceSecret, TAuthorizeRequestUserConsent>
+    : IAuthorizeEndpointHandler
+    where TError : class, IError
+    where TClient : class, IClient<TClientSecret>
+    where TClientSecret : class, ISecret
+    where TIdTokenScope : class, IIdTokenScope
+    where TAccessTokenScope : class, IAccessTokenScope
+    where TResource : class, IResource<TResourceSecret>
+    where TResourceSecret : class, ISecret
+    where TAuthorizeRequestUserConsent : class, IAuthorizeRequestUserConsent
 {
     private readonly IErrorService<TError> _errors;
-    private readonly ILogger<AuthorizeEndpointHandler<TSubjectContext, TError, TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TApi, TApiSecret>> _logger;
+    private readonly IAuthorizeRequestInteractionHandler<TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TResource, TResourceSecret, TAuthorizeRequestUserConsent> _interaction;
     private readonly IdentityEngineOptions _options;
-    private readonly IUserAuthenticationService<TSubjectContext> _userAuthentication;
-    private readonly IAuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TApi, TApiSecret> _validator;
+    private readonly IOriginUrls _originUrls;
+    private readonly IAuthorizeRequestParametersService<TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TResource, TResourceSecret> _parameters;
+    private readonly IAuthorizeRequestResponseGenerator<TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TResource, TResourceSecret> _responseGenerator;
+    private readonly ISystemClock _systemClock;
+    private readonly IUserAuthenticationService _userAuthentication;
+    private readonly IAuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TResource, TResourceSecret> _validator;
 
     public AuthorizeEndpointHandler(
         IdentityEngineOptions options,
-        ILogger<AuthorizeEndpointHandler<TSubjectContext, TError, TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TApi, TApiSecret>> logger,
-        IUserAuthenticationService<TSubjectContext> userAuthentication,
+        IUserAuthenticationService userAuthentication,
         IErrorService<TError> errors,
-        IAuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TApi, TApiSecret> validator)
+        IAuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TResource, TResourceSecret> validator,
+        IAuthorizeRequestInteractionHandler<TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TResource, TResourceSecret, TAuthorizeRequestUserConsent> interaction,
+        ISystemClock systemClock,
+        IAuthorizeRequestParametersService<TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TResource, TResourceSecret> parameters,
+        IAuthorizeRequestResponseGenerator<TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TResource, TResourceSecret> responseGenerator,
+        IOriginUrls originUrls)
     {
         ArgumentNullException.ThrowIfNull(options);
-        ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(userAuthentication);
         ArgumentNullException.ThrowIfNull(errors);
         ArgumentNullException.ThrowIfNull(validator);
+        ArgumentNullException.ThrowIfNull(interaction);
+        ArgumentNullException.ThrowIfNull(systemClock);
+        ArgumentNullException.ThrowIfNull(parameters);
+        ArgumentNullException.ThrowIfNull(responseGenerator);
+        ArgumentNullException.ThrowIfNull(originUrls);
         _options = options;
-        _logger = logger;
         _userAuthentication = userAuthentication;
         _errors = errors;
         _validator = validator;
+        _interaction = interaction;
+        _systemClock = systemClock;
+        _parameters = parameters;
+        _responseGenerator = responseGenerator;
+        _originUrls = originUrls;
     }
-
 
     public async Task<IEndpointHandlerResult> HandleAsync(HttpContext httpContext, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(httpContext);
         cancellationToken.ThrowIfCancellationRequested();
-        _logger.Start();
         // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#section-3.1
         // The authorization server MUST support the use of the HTTP GET method for the authorization endpoint and MAY support the use of the POST method as well.
         // https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest
@@ -70,7 +84,6 @@ public sealed class AuthorizeEndpointHandler<TSubjectContext, TError, TClient, T
         {
             if (!httpContext.Request.HasApplicationFormContentType())
             {
-                _logger.EndUnsupportedMediaType();
                 return new StatusCodeResult(HttpStatusCode.UnsupportedMediaType);
             }
 
@@ -79,107 +92,143 @@ public sealed class AuthorizeEndpointHandler<TSubjectContext, TError, TClient, T
         }
         else
         {
-            _logger.EndMethodNotAllowed(httpContext.Request.Method);
             return new StatusCodeResult(HttpStatusCode.MethodNotAllowed);
         }
 
-        var validationResult = await _validator.ValidateAsync(httpContext, parameters, cancellationToken);
+        var requestDate = _systemClock.UtcNow;
+        var validationResult = await _validator.ValidateAsync(httpContext, parameters, requestDate, cancellationToken);
         if (validationResult.HasError)
         {
-            var errorId = await CreateErrorAsync(httpContext, validationResult.Error, cancellationToken);
-            _logger.EndRequestValidationError(errorId);
-            return new ErrorResult(errorId, _options);
+            return await HandleAuthorizeRequestValidationError(httpContext, validationResult.ValidationError, cancellationToken);
         }
 
         var authenticationResult = await _userAuthentication.AuthenticateAsync(httpContext, cancellationToken);
         if (authenticationResult.HasError)
         {
-            var errorId = await CreateErrorAsync(
-                httpContext,
-                authenticationResult.ProtocolError,
-                validationResult.ValidRequest,
-                cancellationToken);
-            _logger.EndUserAuthenticationError(errorId);
-            return new ErrorResult(errorId, _options);
+            return await HandleErrorAsync(httpContext, authenticationResult.ProtocolError, validationResult.ValidRequest, cancellationToken);
         }
 
-        _logger.EndSuccessful();
-        throw new NotImplementedException();
+        var interactionResult = await _interaction.HandleInteractionAsync(httpContext, validationResult.ValidRequest, authenticationResult.Session, null, cancellationToken);
+        if (!interactionResult.IsValid)
+        {
+            if (interactionResult.HasError)
+            {
+                return await HandleErrorAsync(httpContext, interactionResult.ProtocolError, validationResult.ValidRequest, cancellationToken);
+            }
+
+            if (interactionResult.RequireInteraction)
+            {
+                return await HandleRequiredInteraction(
+                    httpContext,
+                    interactionResult.RequiredInteraction,
+                    validationResult.ValidRequest,
+                    cancellationToken);
+            }
+
+            return await HandleErrorAsync(
+                httpContext,
+                new(Constants.Responses.Errors.Values.ServerError, "Incorrect interaction state"),
+                validationResult.ValidRequest,
+                cancellationToken);
+        }
+
+
+        var response = await _responseGenerator.CreateResponseAsync(httpContext, interactionResult.ValidRequest, cancellationToken);
+        var issuer = _originUrls.GetOrigin(httpContext);
+        return new AuthorizeEndpointResult(interactionResult.ValidRequest.RedirectUri, issuer, response);
     }
 
-    private async Task<string> CreateErrorAsync(
+    private async Task<IEndpointHandlerResult> HandleAuthorizeRequestValidationError(
         HttpContext httpContext,
-        AuthorizeRequestError error,
+        AuthorizeRequestValidationError validationError,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (validationError.CanRedirect)
+        {
+            var issuer = _originUrls.GetOrigin(httpContext);
+            return new DirectErrorResult(
+                validationError.ProtocolError,
+                _options,
+                validationError.RedirectUri,
+                validationError.ResponseMode,
+                validationError.State,
+                issuer);
+        }
+
         var errorId = await _errors.CreateAsync(
             httpContext,
-            error.Error,
-            error.ErrorDescription,
-            error.ClientId,
-            error.RedirectUri,
-            error.ResponseMode,
+            validationError.ProtocolError.Error,
+            validationError.ProtocolError.Description,
+            validationError.ClientId,
+            validationError.RedirectUri,
+            validationError.ResponseMode,
             cancellationToken);
-        return errorId;
+        return new ErrorPageResult(errorId, _options);
     }
 
-    private async Task<string> CreateErrorAsync(
+    private async Task<IEndpointHandlerResult> HandleErrorAsync(
         HttpContext httpContext,
         ProtocolError error,
-        ValidAuthorizeRequest<TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TApi, TApiSecret> request,
+        ValidAuthorizeRequest<TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TResource, TResourceSecret> request,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (error.IsSafe)
+        {
+            var issuer = _originUrls.GetOrigin(httpContext);
+            return new DirectErrorResult(
+                error,
+                _options,
+                request.RedirectUri,
+                request.ResponseMode,
+                request.State,
+                issuer);
+        }
 
         var errorId = await _errors.CreateAsync(
             httpContext,
             error.Error,
-            error.ErrorDescription,
+            error.Description,
             request.Client.ClientId,
             request.RedirectUri,
             request.ResponseMode,
             cancellationToken);
-        return errorId;
+        return new ErrorPageResult(errorId, _options);
     }
-}
 
-public static partial class AuthorizeEndpointHandlerLogs
-{
-    [LoggerMessage(
-        EventId = LogEvents.AuthorizeEndpointHandler.Start,
-        Level = LogLevel.Debug,
-        Message = "Start authorize request.")]
-    public static partial void Start(this ILogger logger);
+    private async Task<IEndpointHandlerResult> HandleRequiredInteraction(
+        HttpContext httpContext,
+        string requiredInteraction,
+        ValidAuthorizeRequest<TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TResource, TResourceSecret> request,
+        CancellationToken cancellationToken)
+    {
+        switch (requiredInteraction)
+        {
+            case Constants.Intermediate.RequiredInteractions.AuthenticateUser:
+                {
+                    var authorizeRequestId = await _parameters.WriteAsync(httpContext, request, cancellationToken);
+                    return new LoginUserPageResult(_options, authorizeRequestId);
+                }
+            case Constants.Intermediate.RequiredInteractions.ReAuthenticateUser:
+                {
+                    var authorizeRequestId = await _parameters.WriteAsync(httpContext, request, cancellationToken);
+                    return new LoginUserPageResult(_options, authorizeRequestId);
+                }
+            case Constants.Intermediate.RequiredInteractions.Consent:
+                {
+                    var authorizeRequestId = await _parameters.WriteAsync(httpContext, request, cancellationToken);
+                    return new ConsentPageResult(_options, authorizeRequestId);
+                }
 
-    [LoggerMessage(
-        EventId = LogEvents.AuthorizeEndpointHandler.EndSuccessful,
-        Level = LogLevel.Debug,
-        Message = "End authorize request. Request was successfully handled.")]
-    public static partial void EndSuccessful(this ILogger logger);
-
-    [LoggerMessage(
-        EventId = LogEvents.AuthorizeEndpointHandler.EndMethodNotAllowed,
-        Level = LogLevel.Information,
-        Message = "End authorize request. Error. HTTP {HttpMethod} requests not supported.")]
-    public static partial void EndMethodNotAllowed(this ILogger logger, string httpMethod);
-
-    [LoggerMessage(
-        EventId = LogEvents.AuthorizeEndpointHandler.EndUnsupportedMediaType,
-        Level = LogLevel.Information,
-        Message = "End authorize request. Error. Unsupported media type.")]
-    public static partial void EndUnsupportedMediaType(this ILogger logger);
-
-    [LoggerMessage(
-        EventId = LogEvents.AuthorizeEndpointHandler.EndRequestValidationError,
-        Level = LogLevel.Information,
-        Message = "End authorize request. Request validation error. Id: {ErrorId}. Redirect to error page.")]
-    public static partial void EndRequestValidationError(this ILogger logger, string errorId);
-
-
-    [LoggerMessage(
-        EventId = LogEvents.AuthorizeEndpointHandler.EndUserAuthenticationError,
-        Level = LogLevel.Information,
-        Message = "End authorize request. User authentication error. Id: {ErrorId}. Redirect to error page.")]
-    public static partial void EndUserAuthenticationError(this ILogger logger, string errorId);
+            default:
+                {
+                    return await HandleErrorAsync(
+                        httpContext,
+                        new(Constants.Responses.Errors.Values.ServerError, "Unsupported interaction"),
+                        request,
+                        cancellationToken);
+                }
+        }
+    }
 }

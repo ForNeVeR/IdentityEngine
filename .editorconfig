@@ -25,7 +25,7 @@ indent_size = 2
 [*.cs]
 # Indentation and spacing
 tab_width = 4
-max_line_length = 180
+max_line_length = 200
 
 # Organize usings
 dotnet_separate_import_directive_groups = false
@@ -395,5 +395,6 @@ dotnet_diagnostic.CA1014.severity = none
 dotnet_diagnostic.CA1054.severity = suggestion
 dotnet_diagnostic.CA1056.severity = suggestion
 dotnet_diagnostic.CA1716.severity = suggestion
+dotnet_diagnostic.CA1724.severity = suggestion
 dotnet_diagnostic.CA1819.severity = suggestion
 dotnet_diagnostic.CA2007.severity = suggestion

@@ -6,7 +6,7 @@ namespace IdentityEngine.Models.Configuration;
 ///     Models an OAuth 2.1 / OpenID Connect 1.0 client.
 /// </summary>
 /// <typeparam name="TClientSecret"></typeparam>
-public interface IClient<TClientSecret> where TClientSecret : ISecret
+public interface IClient<TClientSecret> where TClientSecret : class, ISecret
 {
     /// <summary>
     ///     Unique client identifier.
@@ -31,12 +31,12 @@ public interface IClient<TClientSecret> where TClientSecret : ISecret
     /// <summary>
     ///     Specifies the "id_token" that the client is allowed to request.
     /// </summary>
-    IReadOnlySet<string>? AllowedIdTokenScopes { get; }
+    IReadOnlySet<string>? IdTokenScopes { get; }
 
     /// <summary>
     ///     Specifies the "access_token" that the client is allowed to request.
     /// </summary>
-    IReadOnlySet<string>? AllowedAccessTokenScopes { get; }
+    IReadOnlySet<string>? AccessTokenScopes { get; }
 
     /// <summary>
     ///     Specifies the allowed "code_challenge_method" values that the client is allowed to request via authorization code flow.
@@ -46,7 +46,7 @@ public interface IClient<TClientSecret> where TClientSecret : ISecret
     /// <summary>
     ///     A value indicating whether allow refresh tokens (offline access, defaults should be <see langword="false" /> and only enabled if you need it).
     /// </summary>
-    bool AllowRefreshTokens { get; }
+    bool EnableRefreshTokens { get; }
 
     /// <summary>
     ///     The maximum duration since the last time the user authenticated.
@@ -76,7 +76,7 @@ public interface IClient<TClientSecret> where TClientSecret : ISecret
     /// <summary>
     ///     Specifies whether user can choose to store consent decisions (defaults should be <see langword="true" />).
     /// </summary>
-    bool AllowRememberConsent { get; }
+    bool AllowToRememberConsent { get; }
 
     /// <summary>
     ///     Lifetime of a user consent. Defaults to null (defaults should be <see langword="null" />, that means no expiration).

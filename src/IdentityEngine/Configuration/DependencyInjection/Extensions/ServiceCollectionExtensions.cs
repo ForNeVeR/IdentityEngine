@@ -1,14 +1,8 @@
 using IdentityEngine.Configuration.DependencyInjection.Builder;
 using IdentityEngine.Configuration.Options;
-using IdentityEngine.Factories.Errors;
-using IdentityEngine.Factories.Errors.Default;
-using IdentityEngine.Factories.SubjectContext;
-using IdentityEngine.Factories.SubjectContext.Default;
-using IdentityEngine.Models;
 using IdentityEngine.Models.Configuration;
-using IdentityEngine.Models.Default;
-using IdentityEngine.Models.Default.Infrastructure;
-using IdentityEngine.Models.Infrastructure;
+using IdentityEngine.Models.Intermediate;
+using IdentityEngine.Models.Operation;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
@@ -18,107 +12,221 @@ namespace IdentityEngine.Configuration.DependencyInjection.Extensions;
 
 public static class ServiceCollectionExtensions
 {
-    public static IIdentityEngineBuilder AddIdentityEngineBuilder(this IServiceCollection services)
+    public static IIdentityEngineBuilder<
+            TError,
+            TClient,
+            TClientSecret,
+            TIdTokenScope,
+            TAccessTokenScope,
+            TResource,
+            TResourceSecret,
+            TAuthorizeRequestUserConsent,
+            TGrantedConsent,
+            TAuthorizationCode,
+            TAuthorizeRequestParameters>
+        AddIdentityEngineBuilder<
+            TError,
+            TClient,
+            TClientSecret,
+            TIdTokenScope,
+            TAccessTokenScope,
+            TResource,
+            TResourceSecret,
+            TAuthorizeRequestUserConsent,
+            TGrantedConsent,
+            TAuthorizationCode,
+            TAuthorizeRequestParameters>(this IServiceCollection services)
+        where TError : class, IError
+        where TClient : class, IClient<TClientSecret>
+        where TClientSecret : class, ISecret
+        where TIdTokenScope : class, IIdTokenScope
+        where TAccessTokenScope : class, IAccessTokenScope
+        where TResource : class, IResource<TResourceSecret>
+        where TResourceSecret : class, ISecret
+        where TAuthorizeRequestUserConsent : class, IAuthorizeRequestUserConsent
+        where TGrantedConsent : class, IGrantedConsent
+        where TAuthorizationCode : class, IAuthorizationCode
+        where TAuthorizeRequestParameters : class, IAuthorizeRequestParameters
     {
         ArgumentNullException.ThrowIfNull(services);
-        return new IdentityEngineBuilder(services);
+        return new IdentityEngineBuilder<
+            TError,
+            TClient,
+            TClientSecret,
+            TIdTokenScope,
+            TAccessTokenScope,
+            TResource,
+            TResourceSecret,
+            TAuthorizeRequestUserConsent,
+            TGrantedConsent,
+            TAuthorizationCode,
+            TAuthorizeRequestParameters>(services);
     }
 
-    public static IIdentityEngineBuilder AddIdentityEngine<
-        TSubjectContext,
-        TError,
-        TClient,
-        TClientSecret,
-        TIdTokenScope,
-        TAccessTokenScope,
-        TApi,
-        TApiSecret,
-        TSubjectContextFactory,
-        TErrorFactory>(this IServiceCollection services)
-        where TSubjectContext : ISubjectContext
-        where TError : IError
-        where TClient : IClient<TClientSecret>
-        where TClientSecret : ISecret
-        where TIdTokenScope : IIdTokenScope
-        where TAccessTokenScope : IAccessTokenScope
-        where TApi : IApi<TApiSecret>
-        where TApiSecret : ISecret
-        where TSubjectContextFactory : class, ISubjectContextFactory<TSubjectContext>
-        where TErrorFactory : class, IErrorFactory<TError>
+    public static IIdentityEngineBuilder<
+            TError,
+            TClient,
+            TClientSecret,
+            TIdTokenScope,
+            TAccessTokenScope,
+            TResource,
+            TResourceSecret,
+            TAuthorizeRequestUserConsent,
+            TGrantedConsent,
+            TAuthorizationCode,
+            TAuthorizeRequestParameters>
+        AddIdentityEngine<
+            TError,
+            TClient,
+            TClientSecret,
+            TIdTokenScope,
+            TAccessTokenScope,
+            TResource,
+            TResourceSecret,
+            TAuthorizeRequestUserConsent,
+            TGrantedConsent,
+            TAuthorizationCode,
+            TAuthorizeRequestParameters>(
+            this IServiceCollection services)
+        where TError : class, IError
+        where TClient : class, IClient<TClientSecret>
+        where TClientSecret : class, ISecret
+        where TIdTokenScope : class, IIdTokenScope
+        where TAccessTokenScope : class, IAccessTokenScope
+        where TResource : class, IResource<TResourceSecret>
+        where TResourceSecret : class, ISecret
+        where TAuthorizeRequestUserConsent : class, IAuthorizeRequestUserConsent
+        where TGrantedConsent : class, IGrantedConsent
+        where TAuthorizationCode : class, IAuthorizationCode
+        where TAuthorizeRequestParameters : class, IAuthorizeRequestParameters
     {
         ArgumentNullException.ThrowIfNull(services);
-        var builder = services.AddIdentityEngineBuilder();
-        builder
+        return services.AddIdentityEngineBuilder<
+                TError,
+                TClient,
+                TClientSecret,
+                TIdTokenScope,
+                TAccessTokenScope,
+                TResource,
+                TResourceSecret,
+                TAuthorizeRequestUserConsent,
+                TGrantedConsent,
+                TAuthorizationCode,
+                TAuthorizeRequestParameters>()
             .AddRequiredPlatformServices()
             .AddCookieAuthentication()
-            .AddCoreServices<TSubjectContext, TError, TSubjectContextFactory, TErrorFactory>()
-            .AddDefaultEndpoints<TSubjectContext, TError, TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TApi, TApiSecret>()
-            .AddValidators<TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TApi, TApiSecret>();
-        return builder;
+            .AddCoreServices()
+            .AddDefaultEndpointHandlers();
     }
 
-    public static IIdentityEngineBuilder AddIdentityEngine<
-        TClient,
-        TClientSecret,
-        TIdTokenScope,
-        TAccessTokenScope,
-        TApi,
-        TApiSecret>(
-        this IServiceCollection services,
-        Action<IdentityEngineOptions> setupAction)
-        where TClient : IClient<TClientSecret>
-        where TClientSecret : ISecret
-        where TIdTokenScope : IIdTokenScope
-        where TAccessTokenScope : IAccessTokenScope
-        where TApi : IApi<TApiSecret>
-        where TApiSecret : ISecret
+    public static IIdentityEngineBuilder<
+            TError,
+            TClient,
+            TClientSecret,
+            TIdTokenScope,
+            TAccessTokenScope,
+            TResource,
+            TResourceSecret,
+            TAuthorizeRequestUserConsent,
+            TGrantedConsent,
+            TAuthorizationCode,
+            TAuthorizeRequestParameters>
+        AddIdentityEngine<
+            TError,
+            TClient,
+            TClientSecret,
+            TIdTokenScope,
+            TAccessTokenScope,
+            TResource,
+            TResourceSecret,
+            TAuthorizeRequestUserConsent,
+            TGrantedConsent,
+            TAuthorizationCode,
+            TAuthorizeRequestParameters>(
+            this IServiceCollection services,
+            Action<IdentityEngineOptions> setupAction)
+        where TError : class, IError
+        where TClient : class, IClient<TClientSecret>
+        where TClientSecret : class, ISecret
+        where TIdTokenScope : class, IIdTokenScope
+        where TAccessTokenScope : class, IAccessTokenScope
+        where TResource : class, IResource<TResourceSecret>
+        where TResourceSecret : class, ISecret
+        where TAuthorizeRequestUserConsent : class, IAuthorizeRequestUserConsent
+        where TGrantedConsent : class, IGrantedConsent
+        where TAuthorizationCode : class, IAuthorizationCode
+        where TAuthorizeRequestParameters : class, IAuthorizeRequestParameters
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(setupAction);
         services.Configure(setupAction);
         return services.AddIdentityEngine<
-            DefaultSubjectContext,
-            DefaultError,
+            TError,
             TClient,
             TClientSecret,
             TIdTokenScope,
             TAccessTokenScope,
-            TApi,
-            TApiSecret,
-            SubjectContextFactory,
-            ErrorFactory>();
+            TResource,
+            TResourceSecret,
+            TAuthorizeRequestUserConsent,
+            TGrantedConsent,
+            TAuthorizationCode,
+            TAuthorizeRequestParameters>();
     }
 
-    public static IIdentityEngineBuilder AddIdentityEngine<
-        TClient,
-        TClientSecret,
-        TIdTokenScope,
-        TAccessTokenScope,
-        TApi,
-        TApiSecret>(
-        this IServiceCollection services,
-        IConfiguration configuration)
-        where TClient : IClient<TClientSecret>
-        where TClientSecret : ISecret
-        where TIdTokenScope : IIdTokenScope
-        where TAccessTokenScope : IAccessTokenScope
-        where TApi : IApi<TApiSecret>
-        where TApiSecret : ISecret
+    public static IIdentityEngineBuilder<
+            TError,
+            TClient,
+            TClientSecret,
+            TIdTokenScope,
+            TAccessTokenScope,
+            TResource,
+            TResourceSecret,
+            TAuthorizeRequestUserConsent,
+            TGrantedConsent,
+            TAuthorizationCode,
+            TAuthorizeRequestParameters>
+        AddIdentityEngine<
+            TError,
+            TClient,
+            TClientSecret,
+            TIdTokenScope,
+            TAccessTokenScope,
+            TResource,
+            TResourceSecret,
+            TAuthorizeRequestUserConsent,
+            TGrantedConsent,
+            TAuthorizationCode,
+            TAuthorizeRequestParameters>(
+            this IServiceCollection services,
+            IConfiguration configuration)
+        where TError : class, IError
+        where TClient : class, IClient<TClientSecret>
+        where TClientSecret : class, ISecret
+        where TIdTokenScope : class, IIdTokenScope
+        where TAccessTokenScope : class, IAccessTokenScope
+        where TResource : class, IResource<TResourceSecret>
+        where TResourceSecret : class, ISecret
+        where TAuthorizeRequestUserConsent : class, IAuthorizeRequestUserConsent
+        where TGrantedConsent : class, IGrantedConsent
+        where TAuthorizationCode : class, IAuthorizationCode
+        where TAuthorizeRequestParameters : class, IAuthorizeRequestParameters
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
         services.Configure<IdentityEngineOptions>(configuration);
         return services.AddIdentityEngine<
-            DefaultSubjectContext,
-            DefaultError,
+            TError,
             TClient,
             TClientSecret,
             TIdTokenScope,
             TAccessTokenScope,
-            TApi,
-            TApiSecret,
-            SubjectContextFactory,
-            ErrorFactory>();
+            TResource,
+            TResourceSecret,
+            TAuthorizeRequestUserConsent,
+            TGrantedConsent,
+            TAuthorizationCode,
+            TAuthorizeRequestParameters>();
     }
 
     public static IServiceCollection ConfigureSameSiteNoneCookiePolicy(this IServiceCollection services)

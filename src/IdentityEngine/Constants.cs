@@ -9,27 +9,45 @@ public static class Constants
 {
     public static class AuthenticationSchemes
     {
-        public static readonly string DefaultIdentityEngineCookie = "idngn";
-        public static readonly string DefaultIdentityEngineExternalCookie = "idngn.ext";
+        public const string DefaultIdentityEngineCookie = "idngn";
+        public const string DefaultIdentityEngineExternalCookie = "idngn.ext";
+    }
+
+    public static class ClaimTypes
+    {
+        public const string SubjectId = "i:sub";
+        public const string Login = "i:login";
+        public const string AuthenticationTime = "i:auth_time";
+        public const string IdentityProvider = "i:idp";
+        public const string SessionId = "i:sid";
+
+        public static class Values
+        {
+            public const string LocalIdentityProvider = "local";
+        }
     }
 
     public static class JwtClaims
     {
-        public static readonly string Subject = "sub";
+        public const string Subject = "sub";
     }
 
     public static class Ui
     {
         public static class DefaultRoutes
         {
-            public static readonly string Authorize = "/connect/authorize";
-            public static readonly string AuthorizeCallback = "/connect/authorize/callback";
-            public static readonly string Error = "/error";
+            public const string Authorize = "/connect/authorize";
+            public const string AuthorizeCallback = "/connect/authorize/callback";
+
+            public const string Error = "/error";
+            public const string Login = "/login";
+            public const string Consent = "/consent";
         }
 
         public static class DefaultRoutesParameters
         {
-            public static readonly string ErrorId = "errorId";
+            public const string ErrorId = "errorId";
+            public const string AuthorizeRequestId = "authzId";
         }
     }
 
@@ -37,14 +55,14 @@ public static class Constants
     {
         public static class Authorize
         {
-            public static readonly string ClientId = "client_id";
-            public static readonly string CodeChallenge = "code_challenge";
-            public static readonly string CodeChallengeMethod = "code_challenge_method";
-            public static readonly string RedirectUri = "redirect_uri";
-            public static readonly string ResponseType = "response_type";
-            public static readonly string Scope = "scope";
-            public static readonly string State = "state";
-            public static readonly string ResponseMode = "response_mode";
+            public const string ClientId = "client_id";
+            public const string CodeChallenge = "code_challenge";
+            public const string CodeChallengeMethod = "code_challenge_method";
+            public const string RedirectUri = "redirect_uri";
+            public const string ResponseType = "response_type";
+            public const string Scope = "scope";
+            public const string State = "state";
+            public const string ResponseMode = "response_mode";
 
             public static class OpenIdConnect
             {
@@ -112,53 +130,56 @@ public static class Constants
 
     public static class Responses
     {
-        public static readonly string State = "state";
-        public static readonly string Error = "error";
-        public static readonly string ErrorDescription = "error_description";
+        public const string State = "state";
+        public const string Error = "error";
+        public const string ErrorDescription = "error_description";
+        public const string Issuer = "iss";
 
         public static class Errors
         {
             public static class Values
             {
-                public static readonly string InvalidRequest = "invalid_request";
-                public static readonly string UnauthorizedClient = "unauthorized_client";
-                public static readonly string AccessDenied = "access_denied";
-                public static readonly string UnsupportedResponseType = "unsupported_response_type";
-                public static readonly string InvalidScope = "invalid_scope";
-                public static readonly string ServerError = "server_error";
-                public static readonly string TemporarilyUnavailable = "temporarily_unavailable";
+                public const string InvalidRequest = "invalid_request";
+                public const string UnauthorizedClient = "unauthorized_client";
+                public const string AccessDenied = "access_denied";
+                public const string UnsupportedResponseType = "unsupported_response_type";
+                public const string InvalidScope = "invalid_scope";
+                public const string ServerError = "server_error";
+                public const string TemporarilyUnavailable = "temporarily_unavailable";
 
                 public static class OpenIdConnect
                 {
-                    public static readonly string InteractionRequired = "interaction_required";
-                    public static readonly string LoginRequired = "login_required";
-                    public static readonly string AccountSelectionRequired = "account_selection_required";
-                    public static readonly string ConsentRequired = "consent_required";
-                    public static readonly string InvalidRequestUri = "invalid_request_uri";
-                    public static readonly string InvalidRequestObject = "invalid_request_object";
-                    public static readonly string RequestNotSupported = "request_not_supported";
-                    public static readonly string RequestUriNotSupported = "request_uri_not_supported";
-                    public static readonly string RegistrationNotSupported = "registration_not_supported";
+                    public const string InteractionRequired = "interaction_required";
+                    public const string LoginRequired = "login_required";
+                    public const string AccountSelectionRequired = "account_selection_required";
+                    public const string ConsentRequired = "consent_required";
+                    public const string InvalidRequestUri = "invalid_request_uri";
+                    public const string InvalidRequestObject = "invalid_request_object";
+                    public const string RequestNotSupported = "request_not_supported";
+                    public const string RequestUriNotSupported = "request_uri_not_supported";
+                    public const string RegistrationNotSupported = "registration_not_supported";
                 }
             }
         }
 
         public static class Authorize
         {
-            public static readonly string Code = "code";
+            public const string Code = "code";
+        }
+    }
+
+    public static class Intermediate
+    {
+        public static class RequiredInteractions
+        {
+            public const string AuthenticateUser = "authz";
+            public const string Consent = "consent";
+            public const string ReAuthenticateUser = "reauthz";
         }
     }
 
     public static class Configuration
     {
-        [SuppressMessage("ReSharper", "InconsistentNaming")]
-        [SuppressMessage("Naming", "CA1707:Identifiers should not contain underscores")]
-        public static class Protocols
-        {
-            public const string OAuth_2_1 = "oauth2_1";
-            public const string OpenIdConnect_1_0 = "oidc1_0";
-        }
-
         public static class SecretTypes
         {
             public const string Pbkdf2Sha256 = "pbkdf2:sha256";

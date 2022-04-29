@@ -11,4 +11,8 @@ public class IdentityEngineOptions
     public UserInteractionOptions UserInteraction { get; set; } = new();
 
     public InputLengthRestrictionsOptions InputLengthRestrictions { get; set; } = new();
+
+    public ErrorHandlingOptions ErrorHandling { get; set; } = new();
+
+    public ContentSecurityPolicyOptions ContentSecurityPolicy { get; set; } = new();
 }

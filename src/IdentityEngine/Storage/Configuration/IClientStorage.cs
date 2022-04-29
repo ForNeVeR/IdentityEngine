@@ -4,8 +4,8 @@ using Microsoft.AspNetCore.Http;
 namespace IdentityEngine.Storage.Configuration;
 
 public interface IClientStorage<TClient, TClientSecret>
-    where TClient : IClient<TClientSecret>
-    where TClientSecret : ISecret
+    where TClient : class, IClient<TClientSecret>
+    where TClientSecret : class, ISecret
 {
     Task<TClient?> FindAsync(
         HttpContext httpContext,

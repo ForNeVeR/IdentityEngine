@@ -4,241 +4,230 @@ using IdentityEngine.Configuration.Options;
 using IdentityEngine.Models;
 using IdentityEngine.Models.Configuration;
 using IdentityEngine.Models.Configuration.Enums;
-using IdentityEngine.Services.Endpoints.Authorize.Models;
-using IdentityEngine.Services.Endpoints.Common;
-using IdentityEngine.Services.Scope;
-using IdentityEngine.Services.Scope.Models;
+using IdentityEngine.Services.Core;
+using IdentityEngine.Services.Core.Models.ResourceValidator;
+using IdentityEngine.Services.Endpoints.Authorize.Models.RequestValidator;
+using IdentityEngine.Services.Validation.Parameters;
 using IdentityEngine.Storage.Configuration;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Primitives;
 
 namespace IdentityEngine.Services.Endpoints.Authorize.Default;
 
-public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TApi, TApiSecret>
-    : IAuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TApi, TApiSecret>
-    where TClient : IClient<TClientSecret>
-    where TClientSecret : ISecret
-    where TIdTokenScope : IIdTokenScope
-    where TAccessTokenScope : IAccessTokenScope
-    where TApi : IApi<TApiSecret>
-    where TApiSecret : ISecret
+public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TResource, TResourceSecret>
+    : IAuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TResource, TResourceSecret>
+    where TClient : class, IClient<TClientSecret>
+    where TClientSecret : class, ISecret
+    where TIdTokenScope : class, IIdTokenScope
+    where TAccessTokenScope : class, IAccessTokenScope
+    where TResource : class, IResource<TResourceSecret>
+    where TResourceSecret : class, ISecret
 {
     private readonly IClientStorage<TClient, TClientSecret> _clients;
     private readonly IdentityEngineOptions _options;
-    private readonly IScopeValidator<TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TApi, TApiSecret> _scopeValidator;
+    private readonly IResourceValidator<TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TResource, TResourceSecret> _resourceValidator;
 
     public AuthorizeRequestValidator(
         IClientStorage<TClient, TClientSecret> clients,
         IdentityEngineOptions options,
-        IScopeValidator<TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TApi, TApiSecret> scopeValidator)
+        IResourceValidator<TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TResource, TResourceSecret> resourceValidator)
     {
         ArgumentNullException.ThrowIfNull(clients);
         ArgumentNullException.ThrowIfNull(options);
-        ArgumentNullException.ThrowIfNull(scopeValidator);
+        ArgumentNullException.ThrowIfNull(resourceValidator);
         _clients = clients;
         _options = options;
-        _scopeValidator = scopeValidator;
+        _resourceValidator = resourceValidator;
     }
 
-    public async Task<AuthorizeRequestValidationResult<TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TApi, TApiSecret>> ValidateAsync(
+    public async Task<AuthorizeRequestValidationResult<TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TResource, TResourceSecret>> ValidateAsync(
         HttpContext httpContext,
-        IReadOnlyDictionary<string, StringValues> authorizeRequestParameters,
+        IReadOnlyDictionary<string, StringValues> parameters,
+        DateTimeOffset requestDate,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(httpContext);
-        ArgumentNullException.ThrowIfNull(authorizeRequestParameters);
+        ArgumentNullException.ThrowIfNull(parameters);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var clientValidation = await ValidateClientAsync(httpContext, authorizeRequestParameters, cancellationToken);
+        var clientValidation = await ValidateClientAsync(httpContext, parameters, cancellationToken);
         if (clientValidation.HasError)
         {
-            return new(new AuthorizeRequestError(clientValidation.Error));
+            return new(new AuthorizeRequestValidationError(clientValidation.Error));
         }
 
-        var stateValidation = ValidateState(authorizeRequestParameters);
-        if (stateValidation.HasError)
-        {
-            return new(new AuthorizeRequestError(stateValidation.Error));
-        }
-
-        var redirectUriValidation = ValidateRedirectUri(authorizeRequestParameters, clientValidation.EnabledClient);
-        if (redirectUriValidation.HasError)
-        {
-            return new(new AuthorizeRequestError(redirectUriValidation.Error));
-        }
-
-        var responseTypeValidation = ValidateResponseType(authorizeRequestParameters, clientValidation.EnabledClient);
+        var responseTypeValidation = ValidateResponseType(parameters, clientValidation.EnabledClient);
         if (responseTypeValidation.HasError)
         {
-            return new(new AuthorizeRequestError(responseTypeValidation.Error));
+            return new(new AuthorizeRequestValidationError(responseTypeValidation.Error));
         }
 
-        var responseModeValidation = ValidateResponseMode(authorizeRequestParameters);
+        var stateValidation = ValidateState(parameters);
+        if (stateValidation.HasError)
+        {
+            return new(new AuthorizeRequestValidationError(stateValidation.Error));
+        }
+
+        var responseModeValidation = ValidateResponseMode(parameters, responseTypeValidation.ResponseType);
         if (responseModeValidation.HasError)
         {
-            return new(new AuthorizeRequestError(responseModeValidation.Error));
+            return new(new AuthorizeRequestValidationError(responseModeValidation.Error));
         }
 
-        var scopeValidation = await ValidateScopeAsync(httpContext, authorizeRequestParameters, clientValidation.EnabledClient, cancellationToken);
+        var redirectUriValidation = ValidateRedirectUri(parameters, clientValidation.EnabledClient);
+        if (redirectUriValidation.HasError)
+        {
+            return new(new AuthorizeRequestValidationError(redirectUriValidation.Error));
+        }
+
+        var scopeValidation = await ValidateScopeAsync(httpContext, parameters, clientValidation.EnabledClient, cancellationToken);
         if (scopeValidation.HasError)
         {
-            return new(new AuthorizeRequestError(
+            return new(new AuthorizeRequestValidationError(
                 scopeValidation.Error,
                 clientValidation.EnabledClient.ClientId,
                 redirectUriValidation.RedirectUri,
                 stateValidation.State,
-                responseTypeValidation.ResponseType,
                 responseModeValidation.ResponseMode));
         }
 
-        var codeChallengeMethodValidation = ValidateCodeChallengeMethod(authorizeRequestParameters, clientValidation.EnabledClient);
+        var codeChallengeMethodValidation = ValidateCodeChallengeMethod(parameters, clientValidation.EnabledClient);
         if (codeChallengeMethodValidation.HasError)
         {
-            return new(new AuthorizeRequestError(
+            return new(new AuthorizeRequestValidationError(
                 codeChallengeMethodValidation.Error,
                 clientValidation.EnabledClient.ClientId,
                 redirectUriValidation.RedirectUri,
                 stateValidation.State,
-                responseTypeValidation.ResponseType,
                 responseModeValidation.ResponseMode));
         }
 
-        var codeChallengeValidation = ValidateCodeChallenge(authorizeRequestParameters);
+        var codeChallengeValidation = ValidateCodeChallenge(parameters);
         if (codeChallengeValidation.HasError)
         {
-            return new(new AuthorizeRequestError(
+            return new(new AuthorizeRequestValidationError(
                 codeChallengeValidation.Error,
                 clientValidation.EnabledClient.ClientId,
                 redirectUriValidation.RedirectUri,
                 stateValidation.State,
-                responseTypeValidation.ResponseType,
                 responseModeValidation.ResponseMode));
         }
 
-        var nonceValidation = ValidateNonce(authorizeRequestParameters);
+        var nonceValidation = ValidateNonce(parameters);
         if (nonceValidation.HasError)
         {
-            return new(new AuthorizeRequestError(
+            return new(new AuthorizeRequestValidationError(
                 nonceValidation.Error,
                 clientValidation.EnabledClient.ClientId,
                 redirectUriValidation.RedirectUri,
                 stateValidation.State,
-                responseTypeValidation.ResponseType,
                 responseModeValidation.ResponseMode));
         }
 
-        var promptValidation = ValidatePrompt(authorizeRequestParameters);
+        var promptValidation = ValidatePrompt(parameters);
         if (promptValidation.HasError)
         {
-            return new(new AuthorizeRequestError(
+            return new(new AuthorizeRequestValidationError(
                 promptValidation.Error,
                 clientValidation.EnabledClient.ClientId,
                 redirectUriValidation.RedirectUri,
                 stateValidation.State,
-                responseTypeValidation.ResponseType,
                 responseModeValidation.ResponseMode));
         }
 
-        var maxAgeValidation = ValidateMaxAge(authorizeRequestParameters);
+        var maxAgeValidation = ValidateMaxAge(parameters);
         if (maxAgeValidation.HasError)
         {
-            return new(new AuthorizeRequestError(
+            return new(new AuthorizeRequestValidationError(
                 maxAgeValidation.Error,
                 clientValidation.EnabledClient.ClientId,
                 redirectUriValidation.RedirectUri,
                 stateValidation.State,
-                responseTypeValidation.ResponseType,
                 responseModeValidation.ResponseMode));
         }
 
-        var loginHintValidation = ValidateLoginHint(authorizeRequestParameters);
+        var loginHintValidation = ValidateLoginHint(parameters);
         if (loginHintValidation.HasError)
         {
-            return new(new AuthorizeRequestError(
+            return new(new AuthorizeRequestValidationError(
                 loginHintValidation.Error,
                 clientValidation.EnabledClient.ClientId,
                 redirectUriValidation.RedirectUri,
                 stateValidation.State,
-                responseTypeValidation.ResponseType,
                 responseModeValidation.ResponseMode));
         }
 
-        var acrValuesValidation = ValidateAcrValues(authorizeRequestParameters);
+        var acrValuesValidation = ValidateAcrValues(parameters);
         if (acrValuesValidation.HasError)
         {
-            return new(new AuthorizeRequestError(
+            return new(new AuthorizeRequestValidationError(
                 acrValuesValidation.Error,
                 clientValidation.EnabledClient.ClientId,
                 redirectUriValidation.RedirectUri,
                 stateValidation.State,
-                responseTypeValidation.ResponseType,
                 responseModeValidation.ResponseMode));
         }
 
-        var displayValidation = ValidateDisplay(authorizeRequestParameters);
+        var displayValidation = ValidateDisplay(parameters);
         if (displayValidation.HasError)
         {
-            return new(new AuthorizeRequestError(
+            return new(new AuthorizeRequestValidationError(
                 displayValidation.Error,
                 clientValidation.EnabledClient.ClientId,
                 redirectUriValidation.RedirectUri,
                 stateValidation.State,
-                responseTypeValidation.ResponseType,
                 responseModeValidation.ResponseMode));
         }
 
-        var uiLocalesValidation = ValidateUiLocales(authorizeRequestParameters);
+        var uiLocalesValidation = ValidateUiLocales(parameters);
         if (uiLocalesValidation.HasError)
         {
-            return new(new AuthorizeRequestError(
+            return new(new AuthorizeRequestValidationError(
                 uiLocalesValidation.Error,
                 clientValidation.EnabledClient.ClientId,
                 redirectUriValidation.RedirectUri,
                 stateValidation.State,
-                responseTypeValidation.ResponseType,
                 responseModeValidation.ResponseMode));
         }
 
-        var requestValidation = ValidateRequest(authorizeRequestParameters);
+        var requestValidation = ValidateRequest(parameters);
         if (requestValidation.HasError)
         {
-            return new(new AuthorizeRequestError(
+            return new(new AuthorizeRequestValidationError(
                 requestValidation.Error,
                 clientValidation.EnabledClient.ClientId,
                 redirectUriValidation.RedirectUri,
                 stateValidation.State,
-                responseTypeValidation.ResponseType,
                 responseModeValidation.ResponseMode));
         }
 
-        var requestUriValidation = ValidateRequestUri(authorizeRequestParameters);
+        var requestUriValidation = ValidateRequestUri(parameters);
         if (requestUriValidation.HasError)
         {
-            return new(new AuthorizeRequestError(
+            return new(new AuthorizeRequestValidationError(
                 requestUriValidation.Error,
                 clientValidation.EnabledClient.ClientId,
                 redirectUriValidation.RedirectUri,
                 stateValidation.State,
-                responseTypeValidation.ResponseType,
                 responseModeValidation.ResponseMode));
         }
 
-        var registrationValidation = ValidateRegistration(authorizeRequestParameters);
+        var registrationValidation = ValidateRegistration(parameters);
         if (registrationValidation.HasError)
         {
-            return new(new AuthorizeRequestError(
+            return new(new AuthorizeRequestValidationError(
                 registrationValidation.Error,
                 clientValidation.EnabledClient.ClientId,
                 redirectUriValidation.RedirectUri,
                 stateValidation.State,
-                responseTypeValidation.ResponseType,
                 responseModeValidation.ResponseMode));
         }
 
-        return new(new ValidAuthorizeRequest<TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TApi, TApiSecret>(
+        return new(new ValidAuthorizeRequest<TClient, TClientSecret, TIdTokenScope, TAccessTokenScope, TResource, TResourceSecret>(
+            requestDate,
             clientValidation.EnabledClient,
             redirectUriValidation.RedirectUri,
-            scopeValidation.ValidScopes,
+            scopeValidation.ValidResources,
             codeChallengeValidation.CodeChallenge,
             codeChallengeMethodValidation.CodeChallengeMethod,
             responseTypeValidation.ResponseType,
@@ -274,11 +263,11 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
             return ClientValidationResult.MultipleClientId;
         }
 
-        var clientId = clientIdValues[0];
+        var clientId = clientIdValues.ToString();
         // client_id is required in both specifications
         if (string.IsNullOrEmpty(clientId))
         {
-            return ClientValidationResult.UnknownOrDisabledClient;
+            return ClientValidationResult.ClientIdValueIsMissing;
         }
 
         // length check
@@ -311,157 +300,6 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
         return new(client);
     }
 
-    private StateValidationResult ValidateState(IReadOnlyDictionary<string, StringValues> parameters)
-    {
-        // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#section-4.1.1
-        // https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest
-        // state is optional for OAuth 2.1 and recommended for OpenID Connect 1.0
-        if (!parameters.TryGetValue(Constants.Requests.Authorize.State, out var stateValues) || stateValues.Count == 0)
-        {
-            return StateValidationResult.Empty;
-        }
-
-        // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#section-3.1
-        // request and response parameters defined by this specification MUST NOT be included more than once.
-        if (stateValues.Count != 1)
-        {
-            return StateValidationResult.MultipleState;
-        }
-
-        var state = stateValues[0];
-        // state is optional for OAuth 2.1 and recommended for OpenID Connect 1.0
-        if (string.IsNullOrEmpty(state))
-        {
-            return StateValidationResult.Empty;
-        }
-
-        // length check
-        if (state.Length > _options.InputLengthRestrictions.State)
-        {
-            return StateValidationResult.StateIsTooLong;
-        }
-
-        // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#appendix-A.5
-        // syntax validation
-        if (!VsCharValueValidator.IsValid(state))
-        {
-            return StateValidationResult.InvalidStateSyntax;
-        }
-
-        // state is valid
-        return new(state);
-    }
-
-    private RedirectUriValidationResult ValidateRedirectUri(IReadOnlyDictionary<string, StringValues> parameters, TClient client)
-    {
-        // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#section-4.1.1
-        // redirect_uri is optional
-        // https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest
-        // redirect_uri is required for any OpenID Connect 1.0 request
-        // In current implementation the usage of redirect_uri is REQUIRED, because it's OpenID Connect 1.0 on top of OAuth 2.1, not just an OAuth 2.1 pure implementation.
-        if (!parameters.TryGetValue(Constants.Requests.Authorize.RedirectUri, out var redirectUriValues) || redirectUriValues.Count == 0)
-        {
-            return RedirectUriValidationResult.RedirectUriIsMissing;
-        }
-
-        // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#section-3.1
-        // request and response parameters defined by this specification MUST NOT be included more than once.
-        if (redirectUriValues.Count != 1)
-        {
-            return RedirectUriValidationResult.MultipleRedirectUri;
-        }
-
-        var redirectUri = redirectUriValues[0];
-        // required to perform request
-        if (string.IsNullOrEmpty(redirectUri))
-        {
-            return RedirectUriValidationResult.RedirectUriIsMissing;
-        }
-
-        // length check
-        if (redirectUri.Length > _options.InputLengthRestrictions.RedirectUri)
-        {
-            return RedirectUriValidationResult.RedirectUriIsTooLong;
-        }
-
-        // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#section-2.3
-        // The redirect URI MUST be an absolute URI as defined by [RFC3986] Section 4.3.
-        // The endpoint URI MAY include an "application/x-www-form-urlencoded" formatted query component which MUST be retained when adding additional query parameters.
-        // The endpoint URI MUST NOT include a fragment component.
-        if (!(Uri.TryCreate(redirectUri, UriKind.Absolute, out var typedRedirectUri)
-              && typedRedirectUri.IsWellFormedOriginalString()
-              && string.IsNullOrEmpty(typedRedirectUri.Fragment)))
-        {
-            return RedirectUriValidationResult.InvalidRedirectUriSyntax;
-        }
-
-        // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#section-2.3.1
-        // Authorization servers MUST require clients to register their complete redirect URI (including the path component)
-        // and reject authorization that specify a redirect URI that doesn't exactly match one that was registered;
-        // the exception is loopback redirects, where an exact match is required except for the port URI component.
-        if (client.RedirectUris == null)
-        {
-            // no redirect_uri registered in client config
-            return RedirectUriValidationResult.NoAllowedRedirectUrisInClientConfiguration;
-        }
-
-        // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#section-1.5
-        // OAuth URLs MUST use the https scheme except for loopback interface redirect URIs, which MAY use the http scheme.
-        // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#section-4.1.1
-        // When comparing the two URIs the authorization server MUST using simple character-by-character string comparison as defined in [RFC3986], Section 6.2.1.
-        // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#section-8.1
-        // Except when using a mechanism like Dynamic Client Registration to provision per-instance secrets, native apps are classified as public clients, as defined in Section 2.1
-        // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#section-8.4.3
-        // The authorization server MUST allow any port to be specified at the time of the request for loopback IP redirect URIs,
-        // to accommodate clients that obtain an available ephemeral port from the operating system at the time of the request.
-        // https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest
-        // redirect_uri - REQUIRED. This URI MUST exactly match one of the Redirection URI values for the Client pre-registered at the OpenID Provider,
-        // with the matching performed as described in Section 6.2.1 of [RFC3986] (Simple String Comparison).
-        // When using this flow, the Redirection URI SHOULD use the https scheme; however, it MAY use the http scheme, provided that the Client Type is confidential.
-        // The Redirection URI MAY use an alternate scheme, such as one that is intended to identify a callback into a native application.
-        if (client.Type is ClientType.Credentialed or ClientType.Confidential && IsLoopbackRedirectUri(typedRedirectUri))
-        {
-            foreach (var existingRedirectUri in client.RedirectUris)
-            {
-                // client redirect uri is loopback IPv4/6 address for http scheme, without fragment and with any port
-                if (Uri.TryCreate(existingRedirectUri, UriKind.Absolute, out var typedExistingRedirectUri)
-                    && typedExistingRedirectUri.IsWellFormedOriginalString()
-                    && string.IsNullOrEmpty(typedExistingRedirectUri.Fragment)
-                    && IsLoopbackRedirectUri(typedExistingRedirectUri)
-                    && typedRedirectUri.Scheme == typedExistingRedirectUri.Scheme
-                    && typedRedirectUri.Host == typedExistingRedirectUri.Host
-                    && typedRedirectUri.PathAndQuery == typedExistingRedirectUri.PathAndQuery)
-                {
-                    // uri is present in client configuration.
-                    // port doesn't matters
-                    return new(redirectUri);
-                }
-            }
-        }
-        else
-        {
-            foreach (var clientRedirectUri in client.RedirectUris)
-            {
-                if (redirectUri == clientRedirectUri)
-                {
-                    return new(redirectUri);
-                }
-            }
-        }
-
-        // other redirect uris is not supported
-        return RedirectUriValidationResult.InvalidRedirectUri;
-
-        static bool IsLoopbackRedirectUri(Uri uri)
-        {
-            return uri.IsLoopback
-                   && uri.HostNameType is UriHostNameType.IPv4 or UriHostNameType.IPv6
-                   && uri.DnsSafeHost is "127.0.0.1" or "::1"
-                   && uri.Scheme == "http"
-                   && string.IsNullOrEmpty(uri.Fragment);
-        }
-    }
-
     private static ResponseTypeValidationResult ValidateResponseType(
         IReadOnlyDictionary<string, StringValues> parameters,
         TClient client)
@@ -486,9 +324,9 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
         // https://openid.net/specs/openid-connect-core-1_0.html#Authentication
         // "response_type" [value = code, Flow = Authorization Code Flow]
         // In current implementation only "code" flow is supported.
-        var responseType = responseTypeValues[0];
+        var responseType = responseTypeValues.ToString();
         if (responseType == Constants.Requests.Authorize.Values.ResponseType.Code
-            && client.AllowedGrantTypes.Contains(Constants.Configuration.GrantTypes.AuthorizationCode, StringComparer.InvariantCulture))
+            && client.AllowedGrantTypes.Contains(Constants.Configuration.GrantTypes.AuthorizationCode))
         {
             return ResponseTypeValidationResult.Code;
         }
@@ -497,19 +335,62 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
         return ResponseTypeValidationResult.UnsupportedResponseType;
     }
 
-    private static ResponseModeValidationResult ValidateResponseMode(IReadOnlyDictionary<string, StringValues> parameters)
+    private StateValidationResult ValidateState(IReadOnlyDictionary<string, StringValues> parameters)
+    {
+        // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#section-4.1.1
+        // https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest
+        // state is optional for OAuth 2.1 and recommended for OpenID Connect 1.0
+        if (!parameters.TryGetValue(Constants.Requests.Authorize.State, out var stateValues) || stateValues.Count == 0)
+        {
+            return StateValidationResult.Null;
+        }
+
+        // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#section-3.1
+        // request and response parameters defined by this specification MUST NOT be included more than once.
+        if (stateValues.Count != 1)
+        {
+            return StateValidationResult.MultipleState;
+        }
+
+        var state = stateValues.ToString();
+        // state is optional for OAuth 2.1 and recommended for OpenID Connect 1.0
+        if (string.IsNullOrEmpty(state))
+        {
+            return StateValidationResult.Empty;
+        }
+
+        // length check
+        if (state.Length > _options.InputLengthRestrictions.State)
+        {
+            return StateValidationResult.StateIsTooLong;
+        }
+
+        // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#appendix-A.5
+        // syntax validation
+        if (!VsCharValueValidator.IsValid(state))
+        {
+            return StateValidationResult.InvalidStateSyntax;
+        }
+
+        // state is valid
+        return new(state);
+    }
+
+    private static ResponseModeValidationResult ValidateResponseMode(IReadOnlyDictionary<string, StringValues> parameters, string responseType)
     {
         // https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest
         // response_mode is optional
-        // https://openid.net/specs/oauth-v2-multiple-response-types-1_0.html
-        // Each Response Type (required parameter) value also defines a default Response Mode mechanism to be used, if no Response Mode is specified using the request parameter.
-        // query - compatible with OAuth 2.1 and OpenID Connect 1.0
+        // https://openid.net/specs/oauth-v2-multiple-response-types-1_0.html#ResponseModes
+        // Each Response Type value also defines a default Response Mode mechanism to be used, if no Response Mode is specified using the request parameter.
+        // query - compatible with OAuth 2.1 and OpenID Connect 1.0 (default for authorization code)
         // fragment - used only in implicit flow and incompatible with OAuth 2.1
         // form_post - defined in https://openid.net/specs/oauth-v2-form-post-response-mode-1_0.html and compatible with OAuth 2.1 / OpenID Connect 1.0
         // In current implementation only "code" flow is supported. Default "response_mode" for "code" flow is "query".
         if (!parameters.TryGetValue(Constants.Requests.Authorize.ResponseMode, out var responseModeValues) || responseModeValues.Count == 0)
         {
-            return ResponseModeValidationResult.Query;
+            return responseType == Constants.Requests.Authorize.Values.ResponseType.Code
+                ? ResponseModeValidationResult.Query
+                : ResponseModeValidationResult.UnsupportedResponseMode;
         }
 
         // Inherit from OAuth 2.1 (because OpenID Connect 1.0 doesn't define behaviour).
@@ -520,7 +401,7 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
             return ResponseModeValidationResult.MultipleResponseMode;
         }
 
-        var responseMode = responseModeValues[0];
+        var responseMode = responseModeValues.ToString();
         // https://openid.net/specs/oauth-v2-multiple-response-types-1_0.html
         // query is compatible with OAuth 2.1, but fragment is not https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#section-2.3
         // The endpoint URI MUST NOT include a fragment component, that's why hybrid flow is dropped.
@@ -540,6 +421,131 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
         return ResponseModeValidationResult.UnsupportedResponseMode;
     }
 
+    private RedirectUriValidationResult ValidateRedirectUri(
+        IReadOnlyDictionary<string, StringValues> parameters,
+        TClient client)
+    {
+        // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#section-4.1.1
+        // redirect_uri is optional
+        // https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest
+        // redirect_uri is required for any OpenID Connect 1.0 request
+        // In current implementation "redirect_uri" is required.
+        // like Microsoft Identity Platform https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-oauth2-auth-code-flow
+        // like Okta https://developer.okta.com/docs/reference/api/oidc/#request-parameters
+        // like Google https://developers.google.com/identity/protocols/oauth2/openid-connect#scope-param
+        if (!parameters.TryGetValue(Constants.Requests.Authorize.RedirectUri, out var redirectUriValues) || redirectUriValues.Count == 0)
+        {
+            return RedirectUriValidationResult.RedirectUriIsMissing;
+        }
+
+        // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#section-3.1
+        // request and response parameters defined by this specification MUST NOT be included more than once.
+        if (redirectUriValues.Count != 1)
+        {
+            return RedirectUriValidationResult.MultipleRedirectUri;
+        }
+
+        var redirectUri = redirectUriValues.ToString();
+        // required to perform request
+        if (string.IsNullOrEmpty(redirectUri))
+        {
+            return RedirectUriValidationResult.RedirectUriIsMissing;
+        }
+
+        // length check
+        if (redirectUri.Length > _options.InputLengthRestrictions.RedirectUri)
+        {
+            return RedirectUriValidationResult.RedirectUriIsTooLong;
+        }
+
+        // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#section-2.3
+        // The redirect URI MUST be an absolute URI as defined by [RFC3986] Section 4.3.
+        // The (redirect) endpoint URI MAY include an "application/x-www-form-urlencoded" formatted query component which MUST be retained when adding additional query parameters.
+        // The (redirect) endpoint URI MUST NOT include a fragment component.
+        if (!IsSyntacticallyCorrect(redirectUri, out var typedRequestRedirectUri))
+        {
+            return RedirectUriValidationResult.InvalidRedirectUriSyntax;
+        }
+
+        // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#section-2.3.1
+        // Authorization servers MUST require clients to register their complete redirect URI (including the path component)
+        // and reject authorization that specify a redirect URI that doesn't exactly match one that was registered;
+        // the exception is loopback redirects, where an exact match is required except for the port URI component.
+        if (client.RedirectUris == null || client.RedirectUris.Count == 0)
+        {
+            // no redirect_uri registered in client config
+            return RedirectUriValidationResult.NoAllowedRedirectUrisInClientConfiguration;
+        }
+
+        // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#section-1.5
+        // OAuth URLs MUST use the https scheme except for loopback interface redirect URIs, which MAY use the http scheme.
+        // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#section-4.1.1
+        // When comparing the two URIs the authorization server MUST using simple character-by-character string comparison as defined in [RFC3986], Section 6.2.1.
+        // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#section-8.1
+        // Except when using a mechanism like Dynamic Client Registration to provision per-instance secrets, native apps are classified as public clients, as defined in Section 2.1
+        // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#section-8.4.3
+        // The authorization server MUST allow any port to be specified at the time of the request for loopback IP redirect URIs,
+        // to accommodate clients that obtain an available ephemeral port from the operating system at the time of the request.
+        // https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest
+        // redirect_uri - REQUIRED. This URI MUST exactly match one of the Redirection URI values for the Client pre-registered at the OpenID Provider,
+        // with the matching performed as described in Section 6.2.1 of [RFC3986] (Simple String Comparison).
+        // When using this flow, the Redirection URI SHOULD use the https scheme; however, it MAY use the http scheme, provided that the Client Type is confidential.
+        // The Redirection URI MAY use an alternate scheme, such as one that is intended to identify a callback into a native application.
+        if (client.Type is ClientType.Credentialed or ClientType.Confidential && IsCorrectHttpLoopbackRedirectUri(typedRequestRedirectUri))
+        {
+            foreach (var clientRedirectUri in client.RedirectUris)
+            {
+                // client redirect uri is loopback IPv4/6 address for http scheme, without fragment and with any port
+                if (IsSyntacticallyCorrect(clientRedirectUri, out var typedClientRedirectUri)
+                    && IsCorrectHttpLoopbackRedirectUri(typedClientRedirectUri)
+                    && typedRequestRedirectUri.Scheme == typedClientRedirectUri.Scheme
+                    && typedRequestRedirectUri.Host == typedClientRedirectUri.Host
+                    && typedRequestRedirectUri.PathAndQuery == typedClientRedirectUri.PathAndQuery)
+                {
+                    // uri is present in client configuration.
+                    // port doesn't matters
+                    return new(redirectUri);
+                }
+            }
+        }
+        else
+        {
+            foreach (var clientRedirectUri in client.RedirectUris)
+            {
+                if (redirectUri == clientRedirectUri)
+                {
+                    return new(redirectUri);
+                }
+            }
+        }
+
+        // valid redirect uri not found
+        return RedirectUriValidationResult.InvalidRedirectUri;
+
+        static bool IsCorrectHttpLoopbackRedirectUri(Uri uri)
+        {
+            return uri.IsLoopback
+                   && uri.HostNameType is UriHostNameType.IPv4 or UriHostNameType.IPv6
+                   && uri.DnsSafeHost is "127.0.0.1" or "::1"
+                   && uri.Scheme == "http"
+                   && string.IsNullOrEmpty(uri.Fragment);
+        }
+
+        static bool IsSyntacticallyCorrect(string redirectUri, [NotNullWhen(true)] out Uri? syntacticallyCorrectUri)
+        {
+            if (Uri.TryCreate(redirectUri, UriKind.Absolute, out var typedRedirectUri)
+                && typedRedirectUri.IsWellFormedOriginalString()
+                && string.IsNullOrEmpty(typedRedirectUri.Fragment))
+            {
+                syntacticallyCorrectUri = typedRedirectUri;
+                return true;
+            }
+
+            syntacticallyCorrectUri = null;
+            return false;
+        }
+    }
+
     private async Task<ScopeValidationResult> ValidateScopeAsync(
         HttpContext httpContext,
         IReadOnlyDictionary<string, StringValues> parameters,
@@ -553,8 +559,11 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
         // If the client omits the scope parameter when requesting authorization, the authorization server MUST either process the request using a pre-defined default value
         // or fail the request indicating an invalid scope. The authorization server SHOULD document its scope requirements and default value (if defined).
         // https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest
-        // scope - REQUIRED. OpenID Connect requests MUST contain the openid scope value. If the openid scope value is not present, the behavior is entirely unspecified.
-        // In current implementation "scope" is required and must contain at least "openid" value.
+        // scope - REQUIRED. OpenID Connect requests MUST contain the "openid" scope value. If the "openid" scope value is not present, the behavior is entirely unspecified.
+        // In current implementation "scope" is required.
+        // like Microsoft Identity Platform https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-oauth2-auth-code-flow
+        // like Okta https://developer.okta.com/docs/reference/api/oidc/#request-parameters
+        // like Google https://developers.google.com/identity/protocols/oauth2/openid-connect#scope-param
         if (!parameters.TryGetValue(Constants.Requests.Authorize.Scope, out var scopeValues) || scopeValues.Count == 0)
         {
             return ScopeValidationResult.ScopeIsMissing;
@@ -567,11 +576,11 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
             return ScopeValidationResult.MultipleScope;
         }
 
-        var scope = scopeValues[0];
+        var scope = scopeValues.ToString();
         // scope is required in current implementation
         if (string.IsNullOrEmpty(scope))
         {
-            return ScopeValidationResult.ScopeIsMissing;
+            return ScopeValidationResult.InvalidScope;
         }
 
         // length check
@@ -581,10 +590,14 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
         }
 
         // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#section-3.2.2.1
-        // The value of the scope parameter is expressed as a list of space-delimited, case-sensitive strings.
+        // The value of the scope parameter is expressed as a list of space-delimited, case-sensitive strings. The strings are defined by the authorization server.
+        // If the value contains multiple space-delimited strings, their order does not matter, and each string adds an additional access range to the requested scope.
+        // https://docs.microsoft.com/en-us/dotnet/standard/base-types/best-practices-strings#recommendations-for-string-usage
+        // Use the non-linguistic StringComparison.Ordinal or StringComparison.OrdinalIgnoreCase values instead of string operations based on CultureInfo.InvariantCulture
+        // when the comparison is linguistically irrelevant (symbolic, for example).
         var requestedScopes = scope
             .Split(' ')
-            .ToHashSet(StringComparer.InvariantCulture);
+            .ToHashSet(StringComparer.Ordinal);
 
         // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#appendix-A.4
         // syntax validation
@@ -600,20 +613,28 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
         // scope - REQUIRED. OpenID Connect requests MUST contain the openid scope value.
         if (!requestedScopes.Contains(Constants.Requests.Values.Scope.OpenId))
         {
-            return ScopeValidationResult.RequireOpenIdScope;
+            return ScopeValidationResult.InvalidScope;
         }
 
         // validate resources
-        var resourceValidation = await _scopeValidator.ValidateRequestedScopesAsync(httpContext, client, requestedScopes, cancellationToken);
+        var resourceValidation = await _resourceValidator.ValidateRequestedResourcesAsync(
+            httpContext,
+            client,
+            requestedScopes,
+            cancellationToken);
         if (resourceValidation.HasError)
         {
+            if (resourceValidation.HasMisconfigured)
+            {
+                return ScopeValidationResult.Misconfigured;
+            }
+
             return ScopeValidationResult.InvalidScope;
         }
 
         // scope is valid
-        return new(resourceValidation.ValidScopes);
+        return new(resourceValidation.Valid);
     }
-
 
     private static CodeChallengeMethodValidationResult ValidateCodeChallengeMethod(
         IReadOnlyDictionary<string, StringValues> parameters,
@@ -623,7 +644,7 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
         // defaults to plain if not present in the request.
         if (!parameters.TryGetValue(Constants.Requests.Authorize.CodeChallengeMethod, out var codeChallengeMethodValues) || codeChallengeMethodValues.Count == 0)
         {
-            if (client.CodeChallengeMethods.Contains(Constants.Requests.Authorize.Values.CodeChallengeMethod.Plain, StringComparer.InvariantCulture))
+            if (client.CodeChallengeMethods.Contains(Constants.Requests.Authorize.Values.CodeChallengeMethod.Plain))
             {
                 return CodeChallengeMethodValidationResult.Plain;
             }
@@ -638,28 +659,19 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
             return CodeChallengeMethodValidationResult.MultipleCodeChallengeMethod;
         }
 
-        var codeChallengeMethod = codeChallengeMethodValues[0];
+        var codeChallengeMethod = codeChallengeMethodValues.ToString();
         // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#section-4.1.1
         // Code verifier transformation method is S256 or plain.
-        if (codeChallengeMethod == null)
+        return codeChallengeMethod switch
         {
-            return CodeChallengeMethodValidationResult.CodeChallengeMethodIsMissing;
-        }
-
-        if (codeChallengeMethod == Constants.Requests.Authorize.Values.CodeChallengeMethod.Plain
-            && client.CodeChallengeMethods.Contains(codeChallengeMethod, StringComparer.InvariantCulture))
-        {
-            return CodeChallengeMethodValidationResult.Plain;
-        }
-
-        if (codeChallengeMethod == Constants.Requests.Authorize.Values.CodeChallengeMethod.S256
-            && client.CodeChallengeMethods.Contains(codeChallengeMethod, StringComparer.InvariantCulture))
-        {
-            return CodeChallengeMethodValidationResult.S256;
-        }
+            Constants.Requests.Authorize.Values.CodeChallengeMethod.Plain
+                when client.CodeChallengeMethods.Contains(codeChallengeMethod) => CodeChallengeMethodValidationResult.Plain,
+            Constants.Requests.Authorize.Values.CodeChallengeMethod.S256
+                when client.CodeChallengeMethods.Contains(codeChallengeMethod) => CodeChallengeMethodValidationResult.S256,
+            _ => CodeChallengeMethodValidationResult.UnknownCodeChallengeMethod
+        };
 
         // other code challenge methods is not supported
-        return CodeChallengeMethodValidationResult.UnknownCodeChallengeMethod;
     }
 
     private CodeChallengeValidationResult ValidateCodeChallenge(IReadOnlyDictionary<string, StringValues> parameters)
@@ -685,7 +697,7 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
             return CodeChallengeValidationResult.MultipleCodeChallenge;
         }
 
-        var codeChallenge = codeChallengeValues[0];
+        var codeChallenge = codeChallengeValues.ToString();
         if (string.IsNullOrWhiteSpace(codeChallenge))
         {
             return CodeChallengeValidationResult.CodeChallengeIsMissing;
@@ -718,7 +730,7 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
         // The value is passed through unmodified from the Authentication Request to the ID Token.
         if (!parameters.TryGetValue(Constants.Requests.Authorize.OpenIdConnect.Nonce, out var nonceValues) || nonceValues.Count == 0)
         {
-            return NonceValidationResult.Empty;
+            return NonceValidationResult.Null;
         }
 
         // Inherit from OAuth 2.1 (because OpenID Connect 1.0 doesn't define behaviour).
@@ -729,8 +741,8 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
             return NonceValidationResult.MultipleNonce;
         }
 
-        var nonce = nonceValues[0];
-        if (nonce == null)
+        var nonce = nonceValues.ToString();
+        if (string.IsNullOrEmpty(nonce))
         {
             return NonceValidationResult.Empty;
         }
@@ -756,7 +768,7 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
         // that specifies whether the Authorization Server prompts the End-User for re-authentication and consent.
         if (!parameters.TryGetValue(Constants.Requests.Authorize.OpenIdConnect.Prompt, out var promptValues) || promptValues.Count == 0)
         {
-            return PromptValidationResult.Empty;
+            return PromptValidationResult.Null;
         }
 
         // Inherit from OAuth 2.1 (because OpenID Connect 1.0 doesn't define behaviour).
@@ -767,41 +779,50 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
             return PromptValidationResult.MultiplePrompt;
         }
 
-        var prompt = promptValues[0];
+        var prompt = promptValues.ToString();
         if (string.IsNullOrEmpty(prompt))
         {
-            return PromptValidationResult.Empty;
+            // if prompt provided - it must contain valid value, otherwise it shouldn't be included in request
+            return PromptValidationResult.InvalidPromptSyntax;
         }
 
         // Space delimited, case sensitive list of ASCII string values
         var requestedPrompts = prompt
             .Split(' ')
-            .ToHashSet(StringComparer.InvariantCulture);
+            .ToHashSet(StringComparer.Ordinal);
 
-        // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#section-6.2
-        // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#appendix-A.16
         foreach (var requestedPrompt in requestedPrompts)
         {
-            if (string.IsNullOrEmpty(requestedPrompt) || !EndpointParameterValueValidator.IsValid(requestedPrompt))
+            if (string.IsNullOrWhiteSpace(requestedPrompt))
             {
                 return PromptValidationResult.InvalidPromptSyntax;
             }
+
+            if (!IsValidPrompt(requestedPrompt))
+            {
+                return PromptValidationResult.UnsupportedPrompt;
+            }
         }
 
-        return requestedPrompts.Count switch
+        // If this parameter contains "none" with any other value, an error is returned.
+        if (requestedPrompts.Contains(Constants.Requests.Authorize.OpenIdConnect.Values.Prompt.None) && requestedPrompts.Count > 1)
         {
-            1 => prompt switch
+            return PromptValidationResult.UnsupportedPrompt;
+        }
+
+        return new(requestedPrompts);
+
+        static bool IsValidPrompt(string prompt)
+        {
+            return prompt switch
             {
-                Constants.Requests.Authorize.OpenIdConnect.Values.Prompt.None => PromptValidationResult.None,
-                Constants.Requests.Authorize.OpenIdConnect.Values.Prompt.Login => PromptValidationResult.Login,
-                Constants.Requests.Authorize.OpenIdConnect.Values.Prompt.Consent => PromptValidationResult.Consent,
-                Constants.Requests.Authorize.OpenIdConnect.Values.Prompt.SelectAccount => PromptValidationResult.SelectAccount,
-                _ => PromptValidationResult.UnsupportedPrompt
-            },
-            2 when requestedPrompts.Contains(Constants.Requests.Authorize.OpenIdConnect.Values.Prompt.Login) &&
-                   requestedPrompts.Contains(Constants.Requests.Authorize.OpenIdConnect.Values.Prompt.Consent) => PromptValidationResult.LoginConsent,
-            _ => PromptValidationResult.UnsupportedPrompt
-        };
+                Constants.Requests.Authorize.OpenIdConnect.Values.Prompt.None => true,
+                Constants.Requests.Authorize.OpenIdConnect.Values.Prompt.Login => true,
+                Constants.Requests.Authorize.OpenIdConnect.Values.Prompt.Consent => true,
+                Constants.Requests.Authorize.OpenIdConnect.Values.Prompt.SelectAccount => true,
+                _ => false
+            };
+        }
     }
 
     private static MaxAgeValidationResult ValidateMaxAge(IReadOnlyDictionary<string, StringValues> parameters)
@@ -812,7 +833,7 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
         // openid.pape.max_auth_age - Value: Integer value greater than or equal to zero in seconds.
         if (!parameters.TryGetValue(Constants.Requests.Authorize.OpenIdConnect.MaxAge, out var maxAgeValues) || maxAgeValues.Count == 0)
         {
-            return MaxAgeValidationResult.Empty;
+            return MaxAgeValidationResult.Null;
         }
 
         // Inherit from OAuth 2.1 (because OpenID Connect 1.0 doesn't define behaviour).
@@ -823,10 +844,11 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
             return MaxAgeValidationResult.MultipleMaxAge;
         }
 
-        var maxAgeString = maxAgeValues[0];
+        var maxAgeString = maxAgeValues.ToString();
         if (string.IsNullOrEmpty(maxAgeString))
         {
-            return MaxAgeValidationResult.Empty;
+            // if max_age provided - it must contain valid value, otherwise it shouldn't be included in request
+            return MaxAgeValidationResult.InvalidMaxAge;
         }
 
         // Integer value greater than or equal to zero in seconds.
@@ -844,7 +866,7 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
         // login_hint - OPTIONAL. Hint to the Authorization Server about the login identifier the End-User might use to log in (if necessary).
         if (!parameters.TryGetValue(Constants.Requests.Authorize.OpenIdConnect.LoginHint, out var loginHintValues) || loginHintValues.Count == 0)
         {
-            return LoginHintValidationResult.Empty;
+            return LoginHintValidationResult.Null;
         }
 
         // Inherit from OAuth 2.1 (because OpenID Connect 1.0 doesn't define behaviour).
@@ -855,10 +877,10 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
             return LoginHintValidationResult.MultipleLoginHint;
         }
 
-        var loginHint = loginHintValues[0];
+        var loginHint = loginHintValues.ToString();
         if (string.IsNullOrEmpty(loginHint))
         {
-            return LoginHintValidationResult.Empty;
+            return LoginHintValidationResult.Null;
         }
 
         // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-05#section-6.2
@@ -884,7 +906,7 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
         // use for processing this Authentication Request, with the values appearing in order of preference.
         if (!parameters.TryGetValue(Constants.Requests.Authorize.OpenIdConnect.AcrValues, out var acrValuesValues) || acrValuesValues.Count == 0)
         {
-            return AcrValuesValidationResult.Empty;
+            return AcrValuesValidationResult.Null;
         }
 
         // Inherit from OAuth 2.1 (because OpenID Connect 1.0 doesn't define behaviour).
@@ -895,10 +917,10 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
             return AcrValuesValidationResult.MultipleAcrValuesValues;
         }
 
-        var acrValues = acrValuesValues[0];
+        var acrValues = acrValuesValues.ToString();
         if (string.IsNullOrEmpty(acrValues))
         {
-            return AcrValuesValidationResult.Empty;
+            return AcrValuesValidationResult.Null;
         }
 
         if (acrValues.Length > _options.InputLengthRestrictions.AcrValues)
@@ -926,7 +948,7 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
         // display - OPTIONAL. ASCII string value that specifies how the Authorization Server displays the authentication and consent user interface pages to the End-User.
         if (!parameters.TryGetValue(Constants.Requests.Authorize.OpenIdConnect.Display, out var displayValues) || displayValues.Count == 0)
         {
-            return DisplayValidationResult.Empty;
+            return DisplayValidationResult.Null;
         }
 
         // Inherit from OAuth 2.1 (because OpenID Connect 1.0 doesn't define behaviour).
@@ -937,13 +959,7 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
             return DisplayValidationResult.MultipleDisplayValues;
         }
 
-        var display = displayValues[0];
-        if (string.IsNullOrEmpty(display))
-        {
-            return DisplayValidationResult.Empty;
-        }
-
-        return display switch
+        return displayValues.ToString() switch
         {
             Constants.Requests.Authorize.OpenIdConnect.Values.Display.Page => DisplayValidationResult.Page,
             Constants.Requests.Authorize.OpenIdConnect.Values.Display.Popup => DisplayValidationResult.Popup,
@@ -960,7 +976,7 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
         // represented as a space-separated list of BCP47 [RFC5646] language tag values, ordered by preference.
         if (!parameters.TryGetValue(Constants.Requests.Authorize.OpenIdConnect.UiLocales, out var uiLocaleValues) || uiLocaleValues.Count == 0)
         {
-            return UiLocalesValidationResult.Empty;
+            return UiLocalesValidationResult.Null;
         }
 
         // Inherit from OAuth 2.1 (because OpenID Connect 1.0 doesn't define behaviour).
@@ -971,10 +987,10 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
             return UiLocalesValidationResult.MultipleUiLocalesValues;
         }
 
-        var uiLocales = uiLocaleValues[0];
+        var uiLocales = uiLocaleValues.ToString();
         if (string.IsNullOrEmpty(uiLocales))
         {
-            return UiLocalesValidationResult.Empty;
+            return UiLocalesValidationResult.Null;
         }
 
         if (uiLocales.Length > _options.InputLengthRestrictions.UiLocales)
@@ -993,7 +1009,7 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
         // Should an OP not support this parameter and an RP uses it, the OP MUST return the request_not_supported error.
         if (!parameters.TryGetValue(Constants.Requests.Authorize.OpenIdConnect.Request, out var requestValues) || requestValues.Count == 0)
         {
-            return RequestValidationResult.Empty;
+            return RequestValidationResult.Null;
         }
 
         if (requestValues.Count != 1)
@@ -1010,7 +1026,7 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
         // Should an OP not support this parameter and an RP uses it, the OP MUST return the request_uri_not_supported error.
         if (!parameters.TryGetValue(Constants.Requests.Authorize.OpenIdConnect.RequestUri, out var requestUriValues) || requestUriValues.Count == 0)
         {
-            return RequestUriValidationResult.Empty;
+            return RequestUriValidationResult.Null;
         }
 
         if (requestUriValues.Count != 1)
@@ -1027,7 +1043,7 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
         // registration_not_supported - The OP does not support use of the registration parameter defined in Section 7.2.1.
         if (!parameters.TryGetValue(Constants.Requests.Authorize.OpenIdConnect.Registration, out var registrationValues) || registrationValues.Count == 0)
         {
-            return RegistrationValidationResult.Empty;
+            return RegistrationValidationResult.Null;
         }
 
         if (registrationValues.Count != 1)
@@ -1046,6 +1062,10 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
         public static readonly ClientValidationResult ClientIdIsMissing = new(new ProtocolError(
             Constants.Responses.Errors.Values.InvalidRequest,
             "\"client_id\" is missing"));
+
+        public static readonly ClientValidationResult ClientIdValueIsMissing = new(new ProtocolError(
+            Constants.Responses.Errors.Values.InvalidRequest,
+            "\"client_id\" value is missing"));
 
         public static readonly ClientValidationResult MultipleClientId = new(new ProtocolError(
             Constants.Responses.Errors.Values.InvalidRequest,
@@ -1084,9 +1104,12 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
         public bool HasError { get; }
     }
 
+
     private class StateValidationResult
     {
-        public static readonly StateValidationResult Empty = new();
+        public static readonly StateValidationResult Null = new();
+
+        public static readonly StateValidationResult Empty = new(string.Empty);
 
         public static readonly StateValidationResult MultipleState = new(new ProtocolError(
             Constants.Responses.Errors.Values.InvalidRequest,
@@ -1108,7 +1131,6 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
 
         private StateValidationResult(ProtocolError error)
         {
-            ArgumentNullException.ThrowIfNull(error);
             Error = error;
             HasError = true;
         }
@@ -1249,11 +1271,11 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
     private class ScopeValidationResult
     {
         public static readonly ScopeValidationResult ScopeIsMissing = new(new ProtocolError(
-            Constants.Responses.Errors.Values.InvalidRequest,
+            Constants.Responses.Errors.Values.InvalidScope,
             "\"scope\" is missing"));
 
         public static readonly ScopeValidationResult MultipleScope = new(new ProtocolError(
-            Constants.Responses.Errors.Values.InvalidRequest,
+            Constants.Responses.Errors.Values.InvalidScope,
             "Multiple \"scope\" values are present, but only 1 has allowed"));
 
         public static readonly ScopeValidationResult ScopeIsTooLong = new(new ProtocolError(
@@ -1264,13 +1286,13 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
             Constants.Responses.Errors.Values.InvalidRequest,
             "Invalid \"scope\" syntax"));
 
-        public static readonly ScopeValidationResult RequireOpenIdScope = new(new ProtocolError(
-            Constants.Responses.Errors.Values.InvalidScope,
-            "\"scope\" must contain \"openid\""));
-
         public static readonly ScopeValidationResult InvalidScope = new(new ProtocolError(
             Constants.Responses.Errors.Values.InvalidScope,
             "Invalid \"scope\""));
+
+        public static readonly ScopeValidationResult Misconfigured = new(new ProtocolError(
+            Constants.Responses.Errors.Values.ServerError,
+            "\"scope\" contains misconfigured scopes"));
 
         private ScopeValidationResult(ProtocolError error)
         {
@@ -1278,17 +1300,18 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
             HasError = true;
         }
 
-        public ScopeValidationResult(ValidScopes<TIdTokenScope, TAccessTokenScope, TApi, TApiSecret> validScopes)
+        public ScopeValidationResult(ValidResources<TIdTokenScope, TAccessTokenScope, TResource, TResourceSecret> validResources)
         {
-            ValidScopes = validScopes;
+            ValidResources = validResources;
             HasError = false;
         }
 
-        public ValidScopes<TIdTokenScope, TAccessTokenScope, TApi, TApiSecret>? ValidScopes { get; }
+        public ValidResources<TIdTokenScope, TAccessTokenScope, TResource, TResourceSecret>? ValidResources { get; }
+
         public ProtocolError? Error { get; }
 
         [MemberNotNullWhen(true, nameof(Error))]
-        [MemberNotNullWhen(false, nameof(ValidScopes))]
+        [MemberNotNullWhen(false, nameof(ValidResources))]
         public bool HasError { get; }
     }
 
@@ -1375,7 +1398,9 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
 
     private class NonceValidationResult
     {
-        public static readonly NonceValidationResult Empty = new();
+        public static readonly NonceValidationResult Null = new();
+
+        public static readonly NonceValidationResult Empty = new(string.Empty);
 
         public static readonly NonceValidationResult MultipleNonce = new(new ProtocolError(
             Constants.Responses.Errors.Values.InvalidRequest,
@@ -1416,21 +1441,7 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
 
     private class PromptValidationResult
     {
-        public static readonly PromptValidationResult Empty = new();
-
-        public static readonly PromptValidationResult None = new(new[] { Constants.Requests.Authorize.OpenIdConnect.Values.Prompt.None });
-
-        public static readonly PromptValidationResult Login = new(new[] { Constants.Requests.Authorize.OpenIdConnect.Values.Prompt.Login });
-
-        public static readonly PromptValidationResult Consent = new(new[] { Constants.Requests.Authorize.OpenIdConnect.Values.Prompt.Consent });
-
-        public static readonly PromptValidationResult SelectAccount = new(new[] { Constants.Requests.Authorize.OpenIdConnect.Values.Prompt.SelectAccount });
-
-        public static readonly PromptValidationResult LoginConsent = new(new[]
-        {
-            Constants.Requests.Authorize.OpenIdConnect.Values.Prompt.Login,
-            Constants.Requests.Authorize.OpenIdConnect.Values.Prompt.Consent
-        });
+        public static readonly PromptValidationResult Null = new();
 
         public static readonly PromptValidationResult InvalidPromptSyntax = new(new ProtocolError(
             Constants.Responses.Errors.Values.InvalidRequest,
@@ -1456,13 +1467,13 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
             HasError = true;
         }
 
-        private PromptValidationResult(string[] prompt)
+        public PromptValidationResult(IReadOnlySet<string> prompt)
         {
             Prompt = prompt;
             HasError = false;
         }
 
-        public string[]? Prompt { get; }
+        public IReadOnlySet<string>? Prompt { get; }
         public ProtocolError? Error { get; }
 
         [MemberNotNullWhen(true, nameof(Error))]
@@ -1471,7 +1482,7 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
 
     private class MaxAgeValidationResult
     {
-        public static readonly MaxAgeValidationResult Empty = new();
+        public static readonly MaxAgeValidationResult Null = new();
 
         public static readonly MaxAgeValidationResult MultipleMaxAge = new(new ProtocolError(
             Constants.Responses.Errors.Values.InvalidRequest,
@@ -1508,7 +1519,7 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
 
     private class LoginHintValidationResult
     {
-        public static readonly LoginHintValidationResult Empty = new();
+        public static readonly LoginHintValidationResult Null = new();
 
         public static readonly LoginHintValidationResult MultipleLoginHint = new(new ProtocolError(
             Constants.Responses.Errors.Values.InvalidRequest,
@@ -1549,7 +1560,7 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
 
     private class AcrValuesValidationResult
     {
-        public static readonly AcrValuesValidationResult Empty = new();
+        public static readonly AcrValuesValidationResult Null = new();
 
         public static readonly AcrValuesValidationResult MultipleAcrValuesValues = new(new ProtocolError(
             Constants.Responses.Errors.Values.InvalidRequest,
@@ -1590,7 +1601,7 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
 
     private class DisplayValidationResult
     {
-        public static readonly DisplayValidationResult Empty = new();
+        public static readonly DisplayValidationResult Null = new();
 
         public static readonly DisplayValidationResult Page = new(Constants.Requests.Authorize.OpenIdConnect.Values.Display.Page);
 
@@ -1635,7 +1646,7 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
 
     private class UiLocalesValidationResult
     {
-        public static readonly UiLocalesValidationResult Empty = new();
+        public static readonly UiLocalesValidationResult Null = new();
 
         public static readonly UiLocalesValidationResult MultipleUiLocalesValues = new(new ProtocolError(
             Constants.Responses.Errors.Values.InvalidRequest,
@@ -1672,7 +1683,7 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
 
     private class RequestValidationResult
     {
-        public static readonly RequestValidationResult Empty = new();
+        public static readonly RequestValidationResult Null = new();
 
         public static readonly RequestValidationResult MultipleRequestValues = new(new(
             Constants.Responses.Errors.Values.InvalidRequest,
@@ -1701,7 +1712,7 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
 
     private class RequestUriValidationResult
     {
-        public static readonly RequestUriValidationResult Empty = new();
+        public static readonly RequestUriValidationResult Null = new();
 
         public static readonly RequestUriValidationResult MultipleRequestUriValues = new(new(
             Constants.Responses.Errors.Values.InvalidRequest,
@@ -1730,7 +1741,7 @@ public class AuthorizeRequestValidator<TClient, TClientSecret, TIdTokenScope, TA
 
     private class RegistrationValidationResult
     {
-        public static readonly RegistrationValidationResult Empty = new();
+        public static readonly RegistrationValidationResult Null = new();
 
         public static readonly RegistrationValidationResult MultipleRegistrationValues = new(new(
             Constants.Responses.Errors.Values.InvalidRequest,
