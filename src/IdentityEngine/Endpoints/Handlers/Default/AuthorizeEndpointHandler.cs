@@ -9,6 +9,7 @@ using IdentityEngine.Models.Intermediate;
 using IdentityEngine.Services.Core;
 using IdentityEngine.Services.Endpoints.Authorize;
 using IdentityEngine.Services.Endpoints.Authorize.Models.RequestValidator;
+using IdentityEngine.Services.Endpoints.Authorize.Models.ResponseGenerator;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Primitives;
@@ -135,7 +136,12 @@ public sealed class AuthorizeEndpointHandler<TError, TClient, TClientSecret, TId
 
         var response = await _responseGenerator.CreateResponseAsync(httpContext, interactionResult.ValidRequest, cancellationToken);
         var issuer = _originUrls.GetOrigin(httpContext);
-        return new AuthorizeEndpointResult(interactionResult.ValidRequest.RedirectUri, issuer, response);
+        var successfulResponseParameters = BuildSuccessfulResponseParameters(response, issuer);
+        return new DirectClientResult(
+            successfulResponseParameters,
+            _options.ContentSecurityPolicy,
+            interactionResult.ValidRequest.RedirectUri,
+            interactionResult.ValidRequest.ResponseMode);
     }
 
     private async Task<IEndpointHandlerResult> HandleAuthorizeRequestValidationError(
@@ -147,13 +153,8 @@ public sealed class AuthorizeEndpointHandler<TError, TClient, TClientSecret, TId
         if (validationError.CanRedirect)
         {
             var issuer = _originUrls.GetOrigin(httpContext);
-            return new DirectErrorResult(
-                validationError.ProtocolError,
-                _options,
-                validationError.RedirectUri,
-                validationError.ResponseMode,
-                validationError.State,
-                issuer);
+            var errorParameters = BuildErrorResponseParameters(_options, validationError.ProtocolError, validationError.State, issuer);
+            return new DirectClientResult(errorParameters, _options.ContentSecurityPolicy, validationError.RedirectUri, validationError.ResponseMode);
         }
 
         var errorId = await _errors.CreateAsync(
@@ -177,13 +178,8 @@ public sealed class AuthorizeEndpointHandler<TError, TClient, TClientSecret, TId
         if (error.IsSafe)
         {
             var issuer = _originUrls.GetOrigin(httpContext);
-            return new DirectErrorResult(
-                error,
-                _options,
-                request.RedirectUri,
-                request.ResponseMode,
-                request.State,
-                issuer);
+            var errorParameters = BuildErrorResponseParameters(_options, error, request.State, issuer);
+            return new DirectClientResult(errorParameters, _options.ContentSecurityPolicy, request.RedirectUri, request.ResponseMode);
         }
 
         var errorId = await _errors.CreateAsync(
@@ -196,6 +192,7 @@ public sealed class AuthorizeEndpointHandler<TError, TClient, TClientSecret, TId
             cancellationToken);
         return new ErrorPageResult(errorId, _options);
     }
+
 
     private async Task<IEndpointHandlerResult> HandleRequiredInteraction(
         HttpContext httpContext,
@@ -230,5 +227,36 @@ public sealed class AuthorizeEndpointHandler<TError, TClient, TClientSecret, TId
                         cancellationToken);
                 }
         }
+    }
+
+    private static IEnumerable<KeyValuePair<string, string?>> BuildErrorResponseParameters(
+        IdentityEngineOptions options,
+        ProtocolError error,
+        string? state,
+        string issuer)
+    {
+        yield return new(Constants.Responses.Error, error.Error);
+        if (!options.ErrorHandling.HideErrorDescriptionsOnSafeErrorResponses && !string.IsNullOrWhiteSpace(error.Description))
+        {
+            yield return new(Constants.Responses.ErrorDescription, error.Description);
+        }
+
+        if (state != null)
+        {
+            yield return new(Constants.Responses.State, state);
+        }
+
+        yield return new(Constants.Responses.Issuer, issuer);
+    }
+
+    private static IEnumerable<KeyValuePair<string, string?>> BuildSuccessfulResponseParameters(AuthorizeResponse response, string issuer)
+    {
+        yield return new(Constants.Responses.Authorize.Code, response.Code);
+        if (response.State != null)
+        {
+            yield return new(Constants.Responses.State, response.State);
+        }
+
+        yield return new(Constants.Responses.Issuer, issuer);
     }
 }
