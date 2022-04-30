@@ -29,9 +29,9 @@ public class ResourceValidator<TClient, TClientSecret, TIdTokenScope, TAccessTok
         IReadOnlySet<string> requestedScopes,
         CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(requestedScopes);
+        cancellationToken.ThrowIfCancellationRequested();
         var (dbIdTokenScopes, dbAccessTokenScopes, dbResources) =
             await _storage.FindEnabledScopesAndResourcesAsync(httpContext, requestedScopes, cancellationToken);
         if (!IsOpenIdConnectRequest(requestedScopes) && dbIdTokenScopes?.Count > 0)
